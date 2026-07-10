@@ -318,10 +318,7 @@ echo "  Plugin dir: ~/.manios/nplugin/"
 echo "  Include:    $INCDIR/"
 echo ""
 echo "  Build plugin:"
-echo "    gcc -shared -I$INCDIR -o ~/.manios/nplugin/my.so my.c"
-echo ""
-echo "  Test:"
-echo "    mno nDoS.mno"
+echo "    nplugin"
 echo ""
 
 # ── 10. Auto-install nplugin.c tu GitHub ──
