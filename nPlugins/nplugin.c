@@ -1,17 +1,4 @@
-/*
- * nplugin.c — Manios Plugin Manager
- *
- * 1 file, 2 modes:
- *   Plugin:  gcc -shared -fPIC -I/usr/local/share/manios/include -o nplugin.so nplugin.c
- *   CLI:     gcc -DNPLUGIN_CLI -o nplugin nplugin.c
- *
- * Plugin developers: copy this pattern! Just wrap your CLI in #ifdef NPLUGIN_CLI.
- */
-
 #ifdef NPLUGIN_CLI
-/* ========================================================================
- * CLI MODE — standalone executable, runs on terminal/cmd/termux
- * ======================================================================== */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
