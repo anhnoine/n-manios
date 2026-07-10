@@ -1,0 +1,235 @@
+craft build_request method url
+    hold req = vault {kind: method, destination: url, heads: vault {}, payload: "", params: vault {}, wait_limit: 30.0, identity: vault {}, relay: vault {proxy: "", enabled: false}, leap: vault {allowed: true, ceiling: 5}, certify: true, stream: false, encoding: "utf-8", parts: []}
+    give req
+end
+
+craft set_header req key val
+    hold heads = req["heads"]
+    set heads[key] = val
+    set req["heads"] = heads
+    give req
+end
+
+craft set_headers req dict
+    hold heads = req["heads"]
+    hold klist = dkeys(dict)
+    spin i from 0 to len(klist)
+        hold k = klist[i]
+        set heads[k] = dict[k]
+    end
+    set req["heads"] = heads
+    give req
+end
+
+craft set_body req data
+    set req["payload"] = str(data)
+    check type(data) == "str"
+        set req["payload"] = data
+    or
+        check type(data) == "vault"
+            hold klist = dkeys(data)
+            hold parts = []
+            spin i from 0 to len(klist)
+                hold k = klist[i]
+                hold v = str(data[k])
+                hold enc_v = url_encode_component(v)
+                hold pair = url_encode_component(k) + "=" + enc_v
+                append(parts, pair)
+            end
+            set req["payload"] = join("&", parts)
+        end
+    end
+    give req
+end
+
+craft set_timeout req seconds
+    set req["wait_limit"] = float(seconds)
+    give req
+end
+
+craft set_auth req user pass
+    hold credentials = str(user) + ":" + str(pass)
+    hold encoded = base64_encode(credentials)
+    set req["identity"] = vault {scheme: "basic", user: str(user), pass: str(pass), encoded: encoded}
+    give req
+end
+
+craft set_proxy req proxy_url
+    hold relay = req["relay"]
+    set relay["proxy"] = proxy_url
+    set relay["enabled"] = true
+    set req["relay"] = relay
+    give req
+end
+
+craft set_redirect req allow
+    hold leap = req["leap"]
+    set leap["allowed"] = allow
+    set req["leap"] = leap
+    give req
+end
+
+craft set_verify req verify
+    set req["certify"] = verify
+    give req
+end
+
+craft encode_params params_dict
+    hold klist = dkeys(params_dict)
+    hold parts = []
+    spin i from 0 to len(klist)
+        hold k = klist[i]
+        hold v = str(params_dict[k])
+        hold enc_k = url_encode_component(k)
+        hold enc_v = url_encode_component(v)
+        append(parts, enc_k + "=" + enc_v)
+    end
+    give join("&", parts)
+end
+
+craft url_encode_component raw
+    hold out = ""
+    hold safe = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~"
+    hold i = 0
+    hold ln = len(raw)
+    spin while i < ln
+        hold ch = raw[i]
+        check contains(safe, ch)
+            set out = out + ch
+        or
+            hold cv = str(int(char_at(raw, i)))
+            check len(cv) == 1
+                set cv = "0" + cv
+            end
+            set out = out + "%" + cv
+        end
+        set i = i + 1
+    end
+    give out
+end
+
+craft base64_encode raw
+    hold alpha = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    hold result = ""
+    hold i = 0
+    hold ln = len(raw)
+    spin while i < ln
+        hold b0 = int(char_at(raw, i))
+        hold b1 = 0
+        hold b2 = 0
+        hold pad = 0
+        check i + 1 < ln
+            set b1 = int(char_at(raw, i + 1))
+        or
+            set pad = pad + 1
+        end
+        check i + 2 < ln
+            set b2 = int(char_at(raw, i + 2))
+        or
+            set pad = pad + 1
+        end
+        hold triple = (b0 * 65536) + (b1 * 256) + b2
+        hold c0 = (triple / 262144) % 64
+        hold c1 = (triple / 4096) % 64
+        hold c2 = (triple / 64) % 64
+        hold c3 = triple % 64
+        set result = result + char_at(alpha, c0) + char_at(alpha, c1)
+        check pad < 2
+            set result = result + char_at(alpha, c2)
+        or
+            set result = result + "="
+        end
+        check pad < 1
+            set result = result + char_at(alpha, c3)
+        or
+            set result = result + "="
+        end
+        set i = i + 3
+    end
+    give result
+end
+
+craft build_curl_cmd req
+    hold method = req["kind"]
+    hold url = req["destination"]
+    hold cmd = "curl -sS -w '\\n%{http_code}\\n%{time_total}'"
+    check not req["leap"]["allowed"]
+        set cmd = cmd + " --max-redirs 0"
+    end
+    check req["leap"]["allowed"]
+        hold ceil = str(req["leap"]["ceiling"])
+        set cmd = cmd + " --max-redirs " + ceil
+    end
+    set cmd = cmd + " -X " + method
+    hold heads = req["heads"]
+    hold hkeys = dkeys(heads)
+    spin i from 0 to len(hkeys)
+        hold k = hkeys[i]
+        hold v = heads[k]
+        hold safe_v = replace(replace(v, "'", "'\\''"), "\n", "")
+        set cmd = cmd + " -H '" + k + ": " + safe_v + "'"
+    end
+    check req["identity"]["scheme"] == "basic"
+        hold enc = req["identity"]["encoded"]
+        set cmd = cmd + " -H 'Authorization: Basic " + enc + "'"
+    or
+        check req["identity"]["scheme"] == "bearer"
+            hold tok = req["identity"]["token"]
+            set cmd = cmd + " -H 'Authorization: Bearer " + tok + "'"
+        end
+    end
+    hold payload = req["payload"]
+    check payload != ""
+        hold safe_body = replace(replace(payload, "'", "'\\''"), "\n", "")
+        set cmd = cmd + " -d '" + safe_body + "'"
+    end
+    check req["relay"]["enabled"]
+        hold proxy = req["relay"]["proxy"]
+        set cmd = cmd + " --proxy '" + proxy + "'"
+    end
+    check not req["certify"]
+        set cmd = cmd + " -k"
+    end
+    hold timeout = str(req["wait_limit"])
+    set cmd = cmd + " --max-time " + timeout
+    check req["stream"]
+        set cmd = cmd + " -N"
+    end
+    set cmd = cmd + " '" + url + "' 2>/dev/null"
+    give cmd
+end
+
+craft req_add_multipart req field_name file_path content_type
+    hold parts = req["parts"]
+    hold entry = vault {field: field_name, filepath: file_path, mimetype: content_type}
+    append(parts, entry)
+    set req["parts"] = parts
+    give req
+end
+
+craft req_set_query req params_dict
+    hold encoded = encode_params(params_dict)
+    hold url = req["destination"]
+    check contains(url, "?")
+        set req["destination"] = url + "&" + encoded
+    or
+        set req["destination"] = url + "?" + encoded
+    end
+    give req
+end
+
+craft req_content_type req ctype
+    give set_header(req, "Content-Type", ctype)
+end
+
+craft req_accept req ctype
+    give set_header(req, "Accept", ctype)
+end
+
+craft req_user_agent req agent
+    give set_header(req, "User-Agent", agent)
+end
+
+craft req_referer req ref
+    give set_header(req, "Referer", ref)
+end

@@ -1,0 +1,128 @@
+craft http_adapter
+    give vault {scheme: "http", pool_connections: 10, pool_maxsize: 10, max_retries: 0, pool_block: false}
+end
+
+craft https_adapter
+    give vault {scheme: "https", pool_connections: 10, pool_maxsize: 10, max_retries: 0, pool_block: false, ssl_context: ssl_create_context()}
+end
+
+craft adapter_send adapter req
+    hold scheme = adapter["scheme"]
+    hold url = req["destination"]
+    hold effective_scheme = scheme
+    check starts_with(lower(url), "https://")
+        set effective_scheme = "https"
+    or
+        check starts_with(lower(url), "http://")
+            set effective_scheme = "http"
+        end
+    end
+    hold ssl_flags = ""
+    check effective_scheme == "https"
+        check has(adapter, "ssl_context")
+            set ssl_flags = ssl_to_curl_flags(adapter["ssl_context"])
+        end
+    end
+    hold method = req["kind"]
+    hold cmd = "curl -sS -w '\\n%{http_code}\\n%{time_total}'"
+    set cmd = cmd + " -X " + method
+    hold heads = req["heads"]
+    hold hkeys = dkeys(heads)
+    spin i from 0 to len(hkeys)
+        hold k = hkeys[i]
+        hold v = heads[k]
+        hold safe_v = replace(replace(v, "'", "'\\''"), "\n", "")
+        set cmd = cmd + " -H '" + k + ": " + safe_v + "'"
+    end
+    check req["identity"]["scheme"] == "basic"
+        set cmd = cmd + " -H 'Authorization: Basic " + req["identity"]["encoded"] + "'"
+    or
+        check req["identity"]["scheme"] == "bearer"
+            set cmd = cmd + " -H 'Authorization: Bearer " + req["identity"]["token"] + "'"
+        or
+            check req["identity"]["scheme"] == "digest"
+                hold hdr = auth_header(req["identity"])
+                check hdr != ""
+                    set cmd = cmd + " -H 'Authorization: " + hdr + "'"
+                end
+            end
+        end
+    end
+    hold payload = req["payload"]
+    check payload != ""
+        hold safe_body = replace(replace(payload, "'", "'\\''"), "\n", "")
+        set cmd = cmd + " -d '" + safe_body + "'"
+    end
+    check req["relay"]["enabled"]
+        hold proxy = req["relay"]["proxy"]
+        set cmd = cmd + " --proxy '" + proxy + "'"
+    end
+    check not req["certify"]
+        set cmd = cmd + " -k"
+    end
+    set cmd = cmd + ssl_flags
+    hold timeout = str(req["wait_limit"])
+    set cmd = cmd + " --max-time " + timeout
+    check not req["leap"]["allowed"]
+        set cmd = cmd + " --max-redirs 0"
+    or
+        hold ceil = str(req["leap"]["ceiling"])
+        set cmd = cmd + " --max-redirs " + ceil
+    end
+    check req["stream"]
+        set cmd = cmd + " -N"
+    end
+    set cmd = cmd + " '" + url + "' 2>/dev/null"
+    hold raw = system(cmd)
+    give raw
+end
+
+craft retry_adapter adapter max_retries
+    set adapter["max_retries"] = max_retries
+    give adapter
+end
+
+craft timeout_adapter adapter timeout
+    give adapter
+end
+
+craft adapter_execute adapter req
+    hold max_retries = adapter["max_retries"]
+    hold raw = ""
+    hold attempts = 0
+    hold last_error = ""
+    spin while attempts <= max_retries
+        shield
+            set raw = adapter_send(adapter, req)
+            hold resp = parse_response(raw)
+            check resp["status_code"] >= 500 and attempts < max_retries
+                set attempts = attempts + 1
+                continue
+            end
+            give resp
+        when e
+            set last_error = str(e)
+            set attempts = attempts + 1
+            check attempts > max_retries
+                give vault {status_code: 0, headers: vault {}, body: "", text: "", elapsed: 0.0, encoding: "utf-8", ok: false, reason: "Max retries exceeded: " + last_error, url: req["destination"], cookies: vault {}}
+            end
+        end
+    end
+    give vault {status_code: 0, headers: vault {}, body: "", text: "", elapsed: 0.0, encoding: "utf-8", ok: false, reason: "Max retries exceeded", url: req["destination"], cookies: vault {}}
+end
+
+craft adapter_pool_stats adapter
+    give vault {connections: adapter["pool_connections"], max_size: adapter["pool_maxsize"], block: adapter["pool_block"], retries: adapter["max_retries"]}
+end
+
+craft adapter_configure adapter config_dict
+    hold klist = dkeys(config_dict)
+    spin i from 0 to len(klist)
+        hold k = klist[i]
+        hold v = config_dict[k]
+        check has(adapter, k)
+            set adapter[k] = v
+        end
+    end
+    give adapter
+end

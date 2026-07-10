@@ -1,0 +1,232 @@
+craft create_cookie_jar
+    give vault {store: vault {}, domain_rules: vault {}, default_path: "/", creation: vault {}}
+end
+
+craft jar_set jar name value domain path
+    hold store = jar["store"]
+    hold entry = vault {name: name, value: value, domain: domain, path: path, created: "now", secure: false, httponly: false, max_age: -1}
+    set store[name] = entry
+    set jar["store"] = store
+    hold rules = jar["domain_rules"]
+    check not has(rules, domain)
+        set rules[domain] = []
+    end
+    hold dlist = rules[domain]
+    check not has(dlist, name)
+        append(dlist, name)
+        set rules[domain] = dlist
+    end
+    set jar["domain_rules"] = rules
+    give jar
+end
+
+craft jar_get jar name
+    hold store = jar["store"]
+    check has(store, name)
+        give store[name]["value"]
+    or
+        give ""
+    end
+end
+
+craft jar_get_all jar
+    hold store = jar["store"]
+    hold result = vault {}
+    hold klist = dkeys(store)
+    spin i from 0 to len(klist)
+        hold k = klist[i]
+        set result[k] = store[k]["value"]
+    end
+    give result
+end
+
+craft jar_delete jar name
+    hold store = jar["store"]
+    check has(store, name)
+        hold entry = store[name]
+        hold domain = entry["domain"]
+        hold rules = jar["domain_rules"]
+        check has(rules, domain)
+            hold dlist = rules[domain]
+            hold idx = index_of(dlist, name)
+            check idx >= 0
+                hold new_list = []
+                spin i from 0 to len(dlist)
+                    check i != idx
+                        append(new_list, dlist[i])
+                    end
+                end
+                set rules[domain] = new_list
+            end
+        end
+        set jar["domain_rules"] = rules
+        set store[name] = vault {}
+        set jar["store"] = store
+    end
+    give jar
+end
+
+craft jar_from_header header_val
+    hold jar = create_cookie_jar()
+    check header_val == ""
+        give jar
+    end
+    hold parts = split(header_val, ";")
+    spin i from 0 to len(parts)
+        hold pair = strip(parts[i])
+        hold eq_pos = find(pair, "=")
+        check eq_pos > 0
+            hold name = strip(substr(pair, 0, eq_pos))
+            hold val = strip(substr(pair, eq_pos + 1, len(pair) - eq_pos - 1))
+            check contains(val, ";")
+                hold semi_pos = find(val, ";")
+                check semi_pos >= 0
+                    set val = strip(substr(val, 0, semi_pos))
+                end
+            end
+            hold store = jar["store"]
+            hold entry = vault {name: name, value: val, domain: "", path: "/", secure: false, httponly: false, max_age: -1}
+            set store[name] = entry
+            set jar["store"] = store
+        end
+    end
+    give jar
+end
+
+craft jar_to_header jar
+    hold store = jar["store"]
+    hold klist = dkeys(store)
+    hold pairs = []
+    spin i from 0 to len(klist)
+        hold k = klist[i]
+        hold entry = store[k]
+        check len(entry) > 0 and has(entry, "value")
+            append(pairs, k + "=" + entry["value"])
+        end
+    end
+    check len(pairs) == 0
+        give ""
+    end
+    give join("; ", pairs)
+end
+
+craft jar_merge jar other
+    hold other_store = other["store"]
+    hold klist = dkeys(other_store)
+    spin i from 0 to len(klist)
+        hold k = klist[i]
+        hold entry = other_store[k]
+        check len(entry) > 0 and has(entry, "value")
+            hold name = k
+            hold value = entry["value"]
+            hold domain = "/"
+            hold path = "/"
+            check has(entry, "domain") and entry["domain"] != ""
+                set domain = entry["domain"]
+            end
+            check has(entry, "path") and entry["path"] != ""
+                set path = entry["path"]
+            end
+            set jar = jar_set(jar, name, value, domain, path)
+        end
+    end
+    give jar
+end
+
+craft jar_match_domain jar url
+    hold store = jar["store"]
+    hold result = create_cookie_jar()
+    hold url_domain = jar_extract_domain(url)
+    hold url_path = jar_extract_path(url)
+    hold klist = dkeys(store)
+    spin i from 0 to len(klist)
+        hold k = klist[i]
+        hold entry = store[k]
+        check len(entry) > 0 and has(entry, "value")
+            hold cookie_domain = entry["domain"]
+            hold cookie_path = entry["path"]
+            check jar_domain_matches(url_domain, cookie_domain)
+                check starts_with(url_path, cookie_path)
+                    set jar = jar_set(result, k, entry["value"], cookie_domain, cookie_path)
+                end
+            end
+        end
+    end
+    give result
+end
+
+craft jar_extract_domain url
+    hold stripped = url
+    check starts_with(stripped, "http://")
+        set stripped = substr(stripped, 7, len(stripped) - 7)
+    or
+        check starts_with(stripped, "https://")
+            set stripped = substr(stripped, 8, len(stripped) - 8)
+        end
+    end
+    hold slash_pos = find(stripped, "/")
+    check slash_pos > 0
+        give substr(stripped, 0, slash_pos)
+    or
+        check has(stripped, "?")
+            hold q_pos = find(stripped, "?")
+            give substr(stripped, 0, q_pos)
+        or
+            give stripped
+        end
+    end
+end
+
+craft jar_extract_path url
+    hold stripped = url
+    check starts_with(stripped, "http://")
+        set stripped = substr(stripped, 7, len(stripped) - 7)
+    or
+        check starts_with(stripped, "https://")
+            set stripped = substr(stripped, 8, len(stripped) - 8)
+        end
+    end
+    hold slash_pos = find(stripped, "/")
+    check slash_pos > 0
+        give substr(stripped, slash_pos, len(stripped) - slash_pos)
+    or
+        give "/"
+    end
+end
+
+craft jar_domain_matches url_domain cookie_domain
+    hold url_lower = lower(url_domain)
+    hold cookie_lower = lower(cookie_domain)
+    check cookie_lower == ""
+        give true
+    end
+    check url_lower == cookie_lower
+        give true
+    end
+    check starts_with(cookie_lower, ".")
+        hold trimmed = substr(cookie_lower, 1, len(cookie_lower) - 1)
+        give ends_with(url_lower, trimmed) or url_lower == trimmed
+    or
+        give ends_with(url_lower, "." + cookie_lower)
+    end
+end
+
+craft jar_clear jar
+    set jar["store"] = vault {}
+    set jar["domain_rules"] = vault {}
+    set jar["creation"] = vault {}
+    give jar
+end
+
+craft jar_count jar
+    hold store = jar["store"]
+    hold klist = dkeys(store)
+    hold count = 0
+    spin i from 0 to len(klist)
+        hold entry = store[klist[i]]
+        check len(entry) > 0 and has(entry, "value")
+            set count = count + 1
+        end
+    end
+    give count
+end

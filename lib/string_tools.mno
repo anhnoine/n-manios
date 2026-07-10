@@ -1,0 +1,476 @@
+craft str_ljust text width fillchar
+    hold w = int(width)
+    hold pad = fillchar
+    check len(pad) == 0
+        set pad = " "
+    end
+    hold c = char_at(pad, 0)
+    hold diff = w - len(text)
+    check diff <= 0
+        give text
+    end
+    hold result = text
+    spin i from 0 to diff
+        set result = result + c
+    end
+    give result
+end
+
+craft str_rjust text width fillchar
+    hold w = int(width)
+    hold pad = fillchar
+    check len(pad) == 0
+        set pad = " "
+    end
+    hold c = char_at(pad, 0)
+    hold diff = w - len(text)
+    check diff <= 0
+        give text
+    end
+    hold prefix = ""
+    spin i from 0 to diff
+        set prefix = prefix + c
+    end
+    give prefix + text
+end
+
+craft str_center text width fillchar
+    hold w = int(width)
+    hold pad = fillchar
+    check len(pad) == 0
+        set pad = " "
+    end
+    hold c = char_at(pad, 0)
+    hold diff = w - len(text)
+    check diff <= 0
+        give text
+    end
+    hold left_pad = diff / 2
+    hold right_pad = diff - left_pad
+    hold result = ""
+    spin i from 0 to left_pad
+        set result = result + c
+    end
+    set result = result + text
+    spin i from 0 to right_pad
+        set result = result + c
+    end
+    give result
+end
+
+craft str_zfill text width
+    hold w = int(width)
+    hold diff = w - len(text)
+    check diff <= 0
+        give text
+    end
+    hold neg = false
+    hold body = text
+    check len(text) > 0 and char_at(text, 0) == "-"
+        set neg = true
+        set body = substr(text, 1, len(text) - 1)
+        set diff = diff + 1
+    end
+    hold prefix = ""
+    spin i from 0 to diff
+        set prefix = prefix + "0"
+    end
+    check neg
+        give "-" + prefix + body
+    or
+        give prefix + text
+    end
+end
+
+craft str_lpad text width ch
+    give str_rjust(text, width, ch)
+end
+
+craft str_rpad text width ch
+    give str_ljust(text, width, ch)
+end
+
+craft str_partition text sep
+    hold pos = find(text, sep)
+    check pos < 0
+        give [text, "", ""]
+    end
+    hold before = substr(text, 0, pos)
+    hold after = substr(text, pos + len(sep), len(text) - pos - len(sep))
+    give [before, sep, after]
+end
+
+craft str_rpartition text sep
+    hold rpos = str_rfind(text, sep)
+    check rpos < 0
+        give ["", "", text]
+    end
+    hold before = substr(text, 0, rpos)
+    hold after = substr(text, rpos + len(sep), len(text) - rpos - len(sep))
+    give [before, sep, after]
+end
+
+craft str_rfind text sub
+    hold last_pos = -1
+    hold search_start = 0
+    spin while true
+        hold pos = find(substr(text, search_start, len(text) - search_start), sub)
+        check pos < 0
+            give last_pos
+        end
+        set last_pos = search_start + pos
+        set search_start = last_pos + 1
+        check search_start > len(text) - len(sub)
+            give last_pos
+        end
+    end
+    give last_pos
+end
+
+craft str_rsplit text sep
+    hold parts = split(text, sep)
+    give parts
+end
+
+craft str_splitlines text
+    hold result = []
+    hold current = ""
+    hold i = 0
+    spin while i < len(text)
+        hold c = char_at(text, i)
+        check c == "\n"
+            push current into result
+            set current = ""
+            set i = i + 1
+        or
+            check c == "\r"
+                push current into result
+                set current = ""
+                check i + 1 < len(text) and char_at(text, i + 1) == "\n"
+                    set i = i + 2
+                or
+                    set i = i + 1
+                end
+            or
+                set current = current + c
+                set i = i + 1
+            end
+        end
+    end
+    check len(current) > 0
+        push current into result
+    end
+    give result
+end
+
+craft str_index text sub
+    hold pos = find(text, sub)
+    check pos < 0
+        raise "substring not found"
+    end
+    give pos
+end
+
+craft str_rindex text sub
+    hold pos = str_rfind(text, sub)
+    check pos < 0
+        raise "substring not found"
+    end
+    give pos
+end
+
+craft str_just text width
+    give str_ljust(text, width, " ")
+end
+
+craft str_escape text
+    hold result = ""
+    spin i from 0 to len(text)
+        hold c = char_at(text, i)
+        check c == "\n"
+            set result = result + "\\n"
+        or
+            check c == "\r"
+                set result = result + "\\r"
+            or
+                check c == "\t"
+                    set result = result + "\\t"
+                or
+                    check c == "\""
+                        set result = result + "\\\""
+                    or
+                        check c == "\\"
+                            set result = result + "\\\\"
+                        or
+                            set result = result + c
+                        end
+                    end
+                end
+            end
+        end
+    end
+    give result
+end
+
+craft str_unescape text
+    hold result = ""
+    hold i = 0
+    spin while i < len(text)
+        check char_at(text, i) == "\\" and i + 1 < len(text)
+            hold next_c = char_at(text, i + 1)
+            check next_c == "n"
+                set result = result + "\n"
+            or
+                check next_c == "r"
+                    set result = result + "\r"
+                or
+                    check next_c == "t"
+                        set result = result + "\t"
+                    or
+                        check next_c == "\""
+                            set result = result + "\""
+                        or
+                            check next_c == "\\"
+                                set result = result + "\\"
+                            or
+                                set result = result + next_c
+                            end
+                        end
+                    end
+                end
+            end
+            set i = i + 2
+        or
+            set result = result + char_at(text, i)
+            set i = i + 1
+        end
+    end
+    give result
+end
+
+craft str_swapcase text
+    hold result = ""
+    spin i from 0 to len(text)
+        hold c = char_at(text, i)
+        hold u = upper(c)
+        hold l = lower(c)
+        check c == u and c != l
+            set result = result + l
+        or
+            check c == l and c != u
+                set result = result + u
+            or
+                set result = result + c
+            end
+        end
+    end
+    give result
+end
+
+craft str_isupper text
+    check len(text) == 0
+        give false
+    end
+    hold has_alpha = false
+    spin i from 0 to len(text)
+        hold c = char_at(text, i)
+        check isalpha(c)
+            set has_alpha = true
+            check c != upper(c)
+                give false
+            end
+        end
+    end
+    give has_alpha
+end
+
+craft str_islower text
+    check len(text) == 0
+        give false
+    end
+    hold has_alpha = false
+    spin i from 0 to len(text)
+        hold c = char_at(text, i)
+        check isalpha(c)
+            set has_alpha = true
+            check c != lower(c)
+                give false
+            end
+        end
+    end
+    give has_alpha
+end
+
+craft str_istitle text
+    check len(text) == 0
+        give false
+    end
+    hold need_upper = true
+    spin i from 0 to len(text)
+        hold c = char_at(text, i)
+        check isalpha(c)
+            check need_upper
+                check c != upper(c)
+                    give false
+                end
+                set need_upper = false
+            or
+                check c != lower(c)
+                    give false
+                end
+            end
+        or
+            check c == " "
+                set need_upper = true
+            end
+        end
+    end
+    give true
+end
+
+craft str_isspace text
+    check len(text) == 0
+        give false
+    end
+    spin i from 0 to len(text)
+        hold c = char_at(text, i)
+        check c != " " and c != "\t" and c != "\n" and c != "\r" and c != "\f" and c != "\v"
+            give false
+        end
+    end
+    give true
+end
+
+craft str_isnumeric text
+    check len(text) == 0
+        give false
+    end
+    spin i from 0 to len(text)
+        hold c = char_at(text, i)
+        check not (isdigit(c) or c == "." or c == "-" or c == "+")
+            give false
+        end
+    end
+    give true
+end
+
+craft str_isdecimal text
+    check len(text) == 0
+        give false
+    end
+    spin i from 0 to len(text)
+        check not isdigit(char_at(text, i))
+            give false
+        end
+    end
+    give true
+end
+
+craft str_dedent text
+    hold lines = split(text, "\n")
+    hold min_indent = 999999
+    spin i from 0 to len(lines)
+        hold line = lines[i]
+        check len(strip(line)) > 0
+            hold indent = 0
+            spin while indent < len(line)
+                hold c = char_at(line, indent)
+                check c == " " or c == "\t"
+                    set indent = indent + 1
+                or
+                    give lines
+                end
+            end
+            check indent < min_indent
+                set min_indent = indent
+            end
+        end
+    end
+    check min_indent == 999999
+        give text
+    end
+    hold result = []
+    spin i from 0 to len(lines)
+        hold line = lines[i]
+        check len(strip(line)) > 0
+            push substr(line, min_indent, len(line) - min_indent) into result
+        or
+            push line into result
+        end
+    end
+    give join(result, "\n")
+end
+
+craft str_indent text n
+    hold prefix = ""
+    spin i from 0 to n
+        set prefix = prefix + " "
+    end
+    hold lines = split(text, "\n")
+    hold result = []
+    spin i from 0 to len(lines)
+        push prefix + lines[i] into result
+    end
+    give join(result, "\n")
+end
+
+craft str_wrap text width
+    hold words = split(text, " ")
+    hold lines = []
+    hold current = ""
+    spin i from 0 to len(words)
+        check len(current) == 0
+            set current = words[i]
+        or
+            check len(current) + 1 + len(words[i]) <= width
+                set current = current + " " + words[i]
+            or
+                push current into lines
+                set current = words[i]
+            end
+        end
+    end
+    check len(current) > 0
+        push current into lines
+    end
+    give join(lines, "\n")
+end
+
+craft str_word_count text
+    hold words = split(strip(text), " ")
+    hold count = 0
+    spin i from 0 to len(words)
+        check len(strip(words[i])) > 0
+            set count = count + 1
+        end
+    end
+    give count
+end
+
+craft str_lines text
+    give split(text, "\n")
+end
+
+craft str_bytes_len text
+    hold tmp = "/tmp/mnos_bl_" + str(int(time_now())) + ".txt"
+    write_file(tmp, text)
+    hold sz = file_size(tmp)
+    delete_file(tmp)
+    give sz
+end
+
+craft str_to_bytes text
+    hold result = []
+    spin i from 0 to len(text)
+        push ord(char_at(text, i)) into result
+    end
+    give result
+end
+
+craft str_from_bytes byte_list
+    hold result = ""
+    spin i from 0 to len(byte_list)
+        set result = result + chr(int(byte_list[i]))
+    end
+    give result
+end

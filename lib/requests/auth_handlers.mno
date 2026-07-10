@@ -1,0 +1,252 @@
+craft basic_auth user password
+    hold credentials = str(user) + ":" + str(password)
+    hold encoded = auth_b64(credentials)
+    give vault {scheme: "basic", user: str(user), pass: str(password), encoded: encoded}
+end
+
+craft bearer_auth token
+    give vault {scheme: "bearer", token: str(token)}
+end
+
+craft digest_auth user password
+    hold cnonce = auth_gen_nonce()
+    give vault {scheme: "digest", user: str(user), pass: str(password), nonce: "", realm: "", qop: "", algorithm: "MD5", opaque: "", cnonce: cnonce, nc: "00000001", uri: ""}
+end
+
+craft apply_auth req auth_dict
+    hold scheme = auth_dict["scheme"]
+    check scheme == "basic"
+        set req["identity"] = auth_dict
+    or
+        check scheme == "bearer"
+            set req["identity"] = auth_dict
+        or
+            check scheme == "digest"
+                set req["identity"] = auth_dict
+            end
+        end
+    end
+    give req
+end
+
+craft auth_header auth_dict
+    hold scheme = auth_dict["scheme"]
+    check scheme == "basic"
+        give "Basic " + auth_dict["encoded"]
+    or
+        check scheme == "bearer"
+            give "Bearer " + auth_dict["token"]
+        or
+            check scheme == "digest"
+                hold user = auth_dict["user"]
+                hold realm = auth_dict["realm"]
+                hold nonce = auth_dict["nonce"]
+                hold uri = auth_dict["uri"]
+                hold cnonce = auth_dict["cnonce"]
+                hold nc = auth_dict["nc"]
+                hold qop = auth_dict["qop"]
+                hold ha1 = auth_md5(user + ":" + realm + ":" + auth_dict["pass"])
+                hold ha2 = auth_md5("GET:" + uri)
+                hold response_hash = auth_md5(ha1 + ":" + nonce + ":" + nc + ":" + cnonce + ":" + qop + ":" + ha2)
+                hold parts = []
+                append(parts, "username=\"" + user + "\"")
+                append(parts, "realm=\"" + realm + "\"")
+                append(parts, "nonce=\"" + nonce + "\"")
+                append(parts, "uri=\"" + uri + "\"")
+                append(parts, "qop=" + qop)
+                append(parts, "nc=" + nc)
+                append(parts, "cnonce=\"" + cnonce + "\"")
+                append(parts, "response=\"" + response_hash + "\"")
+                append(parts, "algorithm=" + auth_dict["algorithm"])
+                check auth_dict["opaque"] != ""
+                    append(parts, "opaque=\"" + auth_dict["opaque"] + "\"")
+                end
+                give "Digest " + join(", ", parts)
+            or
+                give ""
+            end
+        end
+    end
+end
+
+craft auth_b64 raw
+    hold alpha = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    hold result = ""
+    hold i = 0
+    hold ln = len(raw)
+    spin while i < ln
+        hold b0 = 0
+        hold b1 = 0
+        hold b2 = 0
+        hold pad = 0
+        check i < ln
+            set b0 = int(char_at(raw, i))
+        or
+            set pad = pad + 1
+        end
+        check i + 1 < ln
+            set b1 = int(char_at(raw, i + 1))
+        or
+            set pad = pad + 1
+        end
+        check i + 2 < ln
+            set b2 = int(char_at(raw, i + 2))
+        or
+            set pad = pad + 1
+        end
+        hold triple = (b0 * 65536) + (b1 * 256) + b2
+        hold c0 = (triple / 262144) % 64
+        hold c1 = (triple / 4096) % 64
+        hold c2 = (triple / 64) % 64
+        hold c3 = triple % 64
+        set result = result + char_at(alpha, c0) + char_at(alpha, c1)
+        check pad < 2
+            set result = result + char_at(alpha, c2)
+        or
+            set result = result + "="
+        end
+        check pad < 1
+            set result = result + char_at(alpha, c3)
+        or
+            set result = result + "="
+        end
+        set i = i + 3
+    end
+    give result
+end
+
+craft auth_md5 input
+    hold h = 1732584193
+    hold h1 = 4023233417
+    hold h2 = 2562383102
+    hold h3 = 271733878
+    hold msg = input + str(128 - (len(input) % 128))
+    hold i = 0
+    hold ln = len(msg)
+    spin while i < ln
+        hold ch = int(char_at(msg, i))
+        set h = ((h + ch) * 31) % 4294967296
+        set h1 = ((h1 + ch) * 37) % 4294967296
+        set h2 = ((h2 + ch) * 41) % 4294967296
+        set h3 = ((h3 + ch) * 43) % 4294967296
+        set i = i + 1
+    end
+    hold parts = []
+    append(parts, auth_hex(h))
+    append(parts, auth_hex(h1))
+    append(parts, auth_hex(h2))
+    append(parts, auth_hex(h3))
+    give join("", parts)
+end
+
+craft auth_hex val
+    hold chars = "0123456789abcdef"
+    hold result = ""
+    hold i = 7
+    spin while i >= 0
+        hold nibble = (val / pow(16, i)) % 16
+        set result = result + char_at(chars, nibble)
+        set i = i - 1
+    end
+    give result
+end
+
+craft auth_gen_nonce
+    hold nonce = ""
+    spin i from 0 to 16
+        hold r = rand_int(0, 15)
+        hold chars = "0123456789abcdef"
+        set nonce = nonce + char_at(chars, r)
+    end
+    give nonce
+end
+
+craft auth_parse_digest_challenge header_val
+    hold result = vault {realm: "", nonce: "", qop: "", algorithm: "MD5", opaque: "", domain: "", stale: "false"}
+    hold cleaned = header_val
+    check starts_with(cleaned, "Digest ")
+        set cleaned = substr(cleaned, 7, len(cleaned) - 7)
+    end
+    hold tokens = auth_tokenize_digest(cleaned)
+    hold i = 0
+    hold tlen = len(tokens)
+    spin while i < tlen - 1
+        hold key = tokens[i]
+        hold val = tokens[i + 1]
+        set val = replace(replace(val, "\"", ""), ",", "")
+        check key == "realm"
+            set result["realm"] = val
+        or
+            check key == "nonce"
+                set result["nonce"] = val
+            or
+                check key == "qop"
+                    set result["qop"] = val
+                or
+                    check key == "algorithm"
+                        set result["algorithm"] = val
+                    or
+                        check key == "opaque"
+                            set result["opaque"] = val
+                        or
+                            check key == "domain"
+                                set result["domain"] = val
+                            or
+                                check key == "stale"
+                                    set result["stale"] = val
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        set i = i + 2
+    end
+    give result
+end
+
+craft auth_tokenize_digest text
+    hold tokens = []
+    hold current = ""
+    hold in_quotes = false
+    hold i = 0
+    hold ln = len(text)
+    spin while i < ln
+        hold ch = text[i]
+        check ch == "\""
+            set in_quotes = not in_quotes
+            check in_quotes
+                set current = ""
+            or
+                check len(current) > 0
+                    append(tokens, current)
+                end
+                set current = ""
+            end
+        or
+            check in_quotes
+                set current = current + ch
+            or
+                check ch == "=" or ch == ","
+                    check len(current) > 0
+                        append(tokens, current)
+                        set current = ""
+                    end
+                    check ch == "="
+                        append(tokens, "=")
+                    end
+                or
+                    check ch != " " and ch != "\t"
+                        set current = current + ch
+                    end
+                end
+            end
+        end
+        set i = i + 1
+    end
+    check len(current) > 0
+        append(tokens, current)
+    end
+    give tokens
+end

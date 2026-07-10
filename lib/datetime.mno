@@ -1,0 +1,243 @@
+craft dt_now
+    hold raw = system("date '+%Y %m %d %H %M %S %w %s' 2>/dev/null")
+    hold parts = split(strip(raw), " ")
+    hold d = vault {}
+    dict_set(d, "year", int(parts[0]))
+    dict_set(d, "month", int(parts[1]))
+    dict_set(d, "day", int(parts[2]))
+    dict_set(d, "hour", int(parts[3]))
+    dict_set(d, "minute", int(parts[4]))
+    dict_set(d, "second", int(parts[5]))
+    dict_set(d, "weekday", int(parts[6]))
+    dict_set(d, "timestamp", int(parts[7]))
+    hold iso = parts[0] + "-" + parts[1] + "-" + parts[2] + "T" + parts[3] + ":" + parts[4] + ":" + parts[5]
+    dict_set(d, "iso", iso)
+    give d
+end
+
+craft dt_parse iso_str
+    hold s = replace(iso_str, "T", " ")
+    hold s2 = replace(s, "Z", "")
+    hold s3 = replace(s2, "t", " ")
+    hold cleaned = strip(s3)
+    hold space_pos = find(cleaned, " ")
+    hold date_part = cleaned
+    hold time_part = "00:00:00"
+    check space_pos >= 0
+        set date_part = substr(cleaned, 0, space_pos)
+        set time_part = substr(cleaned, space_pos + 1, len(cleaned) - space_pos - 1)
+    end
+    hold dp = split(date_part, "-")
+    hold tp = split(time_part, ":")
+    hold d = vault {}
+    dict_set(d, "year", int(dp[0]))
+    dict_set(d, "month", int(dp[1]))
+    dict_set(d, "day", int(dp[2]))
+    check len(tp) >= 3
+        dict_set(d, "hour", int(tp[0]))
+        dict_set(d, "minute", int(tp[1]))
+        hold sec_part = tp[2]
+        hold dot_pos = find(sec_part, ".")
+        check dot_pos >= 0
+            dict_set(d, "second", int(substr(sec_part, 0, dot_pos)))
+        or
+            dict_set(d, "second", int(sec_part))
+        end
+    or
+        dict_set(d, "hour", 0)
+        dict_set(d, "minute", 0)
+        dict_set(d, "second", 0)
+    end
+    dict_set(d, "weekday", 0)
+    dict_set(d, "timestamp", 0)
+    dict_set(d, "iso", iso_str)
+    give d
+end
+
+craft dt_format dt_dict fmt
+    hold y = str(dict_get(dt_dict, "year"))
+    hold mo = str(dict_get(dt_dict, "month"))
+    hold d = str(dict_get(dt_dict, "day"))
+    hold h = str(dict_get(dt_dict, "hour"))
+    hold mi = str(dict_get(dt_dict, "minute"))
+    hold s = str(dict_get(dt_dict, "second"))
+    check len(mo) == 1
+        set mo = "0" + mo
+    end
+    check len(d) == 1
+        set d = "0" + d
+    end
+    check len(h) == 1
+        set h = "0" + h
+    end
+    check len(mi) == 1
+        set mi = "0" + mi
+    end
+    check len(s) == 1
+        set s = "0" + s
+    end
+    hold result = fmt
+    set result = replace(result, "%Y", y)
+    set result = replace(result, "%m", mo)
+    set result = replace(result, "%d", d)
+    set result = replace(result, "%H", h)
+    set result = replace(result, "%M", mi)
+    set result = replace(result, "%S", s)
+    set result = replace(result, "%F", y + "-" + mo + "-" + d)
+    set result = replace(result, "%T", h + ":" + mi + ":" + s)
+    set result = replace(result, "%%", "%")
+    give result
+end
+
+craft dt_timestamp
+    hold raw = strip(system("date '+%s' 2>/dev/null"))
+    give int(raw)
+end
+
+craft dt_from_timestamp ts
+    hold cmd = "date -d @" + str(ts) + " '+%Y %m %d %H %M %S %w %s' 2>/dev/null"
+    hold raw = system(cmd)
+    hold parts = split(strip(raw), " ")
+    hold d = vault {}
+    dict_set(d, "year", int(parts[0]))
+    dict_set(d, "month", int(parts[1]))
+    dict_set(d, "day", int(parts[2]))
+    dict_set(d, "hour", int(parts[3]))
+    dict_set(d, "minute", int(parts[4]))
+    dict_set(d, "second", int(parts[5]))
+    dict_set(d, "weekday", int(parts[6]))
+    dict_set(d, "timestamp", int(parts[7]))
+    hold iso = parts[0] + "-" + parts[1] + "-" + parts[2] + "T" + parts[3] + ":" + parts[4] + ":" + parts[5]
+    dict_set(d, "iso", iso)
+    give d
+end
+
+craft dt_delta seconds
+    hold d = vault {}
+    hold total_sec = int(seconds)
+    hold days = total_sec / 86400
+    hold remainder = total_sec % 86400
+    hold hours = remainder / 3600
+    set remainder = remainder % 3600
+    hold mins = remainder / 60
+    hold secs = remainder % 60
+    dict_set(d, "days", days)
+    dict_set(d, "hours", hours)
+    dict_set(d, "minutes", mins)
+    dict_set(d, "seconds", secs)
+    dict_set(d, "total_seconds", total_sec)
+    give d
+end
+
+craft dt_to_epoch dt_dict
+    hold cmd = "date -d '" + dict_get(dt_dict, "iso") + "' '+%s' 2>/dev/null"
+    hold raw = strip(system(cmd))
+    give int(raw)
+end
+
+craft dt_add dt delta
+    hold epoch = dt_to_epoch(dt)
+    hold add_secs = dict_get(delta, "total_seconds")
+    hold new_epoch = epoch + int(add_secs)
+    give dt_from_timestamp(new_epoch)
+end
+
+craft dt_sub dt1 dt2
+    hold e1 = dt_to_epoch(dt1)
+    hold e2 = dt_to_epoch(dt2)
+    hold diff = e1 - e2
+    give dt_delta(diff)
+end
+
+craft dt_diff_days dt1 dt2
+    hold e1 = dt_to_epoch(dt1)
+    hold e2 = dt_to_epoch(dt2)
+    hold diff = e1 - e2
+    check diff < 0
+        set diff = -diff
+    end
+    give diff / 86400
+end
+
+craft dt_is_weekend dt
+    hold wd = dict_get(dt, "weekday")
+    check wd == 0 or wd == 6
+        give true
+    or
+        give false
+    end
+end
+
+craft dt_day_name dt
+    hold wd = dict_get(dt, "weekday")
+    hold names = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+    check wd >= 0 and wd <= 6
+        give names[wd]
+    or
+        give "Unknown"
+    end
+end
+
+craft dt_month_name dt
+    hold mo = dict_get(dt, "month")
+    hold names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+    check mo >= 1 and mo <= 12
+        give names[mo - 1]
+    or
+        give "Unknown"
+    end
+end
+
+craft dt_start_of_day dt
+    hold y = dict_get(dt, "year")
+    hold mo = dict_get(dt, "month")
+    hold d = dict_get(dt, "day")
+    hold iso = str(y) + "-" + str(mo) + "-" + str(d) + "T00:00:00"
+    give dt_parse(iso)
+end
+
+craft dt_end_of_day dt
+    hold y = dict_get(dt, "year")
+    hold mo = dict_get(dt, "month")
+    hold d = dict_get(dt, "day")
+    hold iso = str(y) + "-" + str(mo) + "-" + str(d) + "T23:59:59"
+    give dt_parse(iso)
+end
+
+craft dt_iso_now
+    give dict_get(dt_now(), "iso")
+end
+
+craft dt_age birth_date_str
+    hold birth = dt_parse(birth_date_str)
+    hold now = dt_now()
+    hold by = dict_get(birth, "year")
+    hold bm = dict_get(birth, "month")
+    hold bd = dict_get(birth, "day")
+    hold ny = dict_get(now, "year")
+    hold nm = dict_get(now, "month")
+    hold nd = dict_get(now, "day")
+    hold years = ny - by
+    hold months = nm - bm
+    hold days = nd - bd
+    check days < 0
+        set months = months - 1
+        hold prev_month = nm
+        set prev_month = prev_month - 1
+        check prev_month < 1
+            set prev_month = 12
+        end
+        hold cmd = "cal " + str(prev_month) + " " + str(ny) + " 2>/dev/null | awk 'NF{D=$NF} END{print D}'"
+        hold days_in_month = int(strip(system(cmd)))
+        set days = days_in_month + bd - nd
+    end
+    check months < 0
+        set years = years - 1
+        set months = months + 12
+    end
+    hold result = vault {}
+    dict_set(result, "years", years)
+    dict_set(result, "months", months)
+    dict_set(result, "days", days)
+    give result
+end

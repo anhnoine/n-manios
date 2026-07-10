@@ -1,0 +1,105 @@
+craft b64_encode text
+    hold tmp = "/tmp/mnos_b64e_" + str(int(time_now())) + ".txt"
+    write_file(tmp, text)
+    hold cmd = "base64 '" + tmp + "' 2>/dev/null"
+    hold result = strip(system(cmd))
+    delete_file(tmp)
+    give result
+end
+
+craft b64_decode b64str
+    hold tmp_in = "/tmp/mnos_b64d_" + str(int(time_now())) + ".txt"
+    hold tmp_out = "/tmp/mnos_b64do_" + str(int(time_now())) + ".txt"
+    write_file(tmp_in, b64str)
+    hold cmd = "base64 -d '" + tmp_in + "' > '" + tmp_out + "' 2>/dev/null"
+    system(cmd)
+    hold result = read_file(tmp_out)
+    delete_file(tmp_in)
+    delete_file(tmp_out)
+    give result
+end
+
+craft b64_encode_file path
+    hold cmd = "base64 '" + replace(path, "'", "'\\''") + "' 2>/dev/null"
+    give strip(system(cmd))
+end
+
+craft b64_decode_file b64str outpath
+    hold tmp = "/tmp/mnos_b64df_" + str(int(time_now())) + ".txt"
+    write_file(tmp, b64str)
+    hold cmd = "base64 -d '" + tmp + "' > '" + replace(outpath, "'", "'\\''") + "' 2>/dev/null"
+    system(cmd)
+    delete_file(tmp)
+    give file_exists(outpath)
+end
+
+craft hex_encode text
+    hold result = ""
+    spin i from 0 to len(text)
+        hold c = ord(char_at(text, i))
+        hold h = ""
+        hold val = c
+        check val == 0
+            set h = "00"
+        or
+            spin while val > 0
+                hold rem = val % 16
+                check rem < 10
+                    set h = char_at("0123456789", rem) + h
+                or
+                    set h = char_at("abcdef", rem - 10) + h
+                end
+                set val = val / 16
+            end
+            check len(h) == 1
+                set h = "0" + h
+            end
+        end
+        set result = result + h
+    end
+    give result
+end
+
+craft hex_decode hexstr
+    hold cleaned = replace(replace(lower(strip(hexstr)), " ", ""), "\n", "")
+    hold result = ""
+    hold i = 0
+    spin while i < len(cleaned)
+        check i + 1 < len(cleaned)
+            hold hi = find("0123456789abcdef", char_at(cleaned, i))
+            hold lo = find("0123456789abcdef", char_at(cleaned, i + 1))
+            check hi < 0
+                set hi = 0
+            end
+            check lo < 0
+                set lo = 0
+            end
+            set result = result + chr(hi * 16 + lo)
+            set i = i + 2
+        or
+            set i = i + 1
+        end
+    end
+    give result
+end
+
+craft urlsafe_b64_encode text
+    hold encoded = b64_encode(text)
+    hold result = replace(replace(encoded, "+", "-"), "/", "_")
+    set result = replace(result, "=", "")
+    give result
+end
+
+craft urlsafe_b64_decode text
+    hold padded = text
+    hold mod = len(padded) % 4
+    check mod == 2
+        set padded = padded + "=="
+    or
+        check mod == 3
+            set padded = padded + "="
+        end
+    end
+    hold restored = replace(replace(padded, "-", "+"), "_", "/")
+    give b64_decode(restored)
+end

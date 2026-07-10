@@ -1,0 +1,142 @@
+craft _pack_le32 val
+    hold v = int(val)
+    hold b0 = chr(v % 256)
+    hold v1 = v / 256
+    hold b1 = chr(v1 % 256)
+    hold v2 = v1 / 256
+    hold b2 = chr(v2 % 256)
+    hold v3 = v2 / 256
+    hold b3 = chr(v3 % 256)
+    give b0 + b1 + b2 + b3
+end
+
+craft _unpack_le32 data offset
+    hold b0 = ord(char_at(data, offset))
+    hold b1 = ord(char_at(data, offset + 1))
+    hold b2 = ord(char_at(data, offset + 2))
+    hold b3 = ord(char_at(data, offset + 3))
+    give b0 + b1 * 256 + b2 * 65536 + b3 * 16777216
+end
+
+craft _pack_le64 val
+    hold v = int(val)
+    hold result = ""
+    hold shift = 0
+    spin i from 0 to 8
+        hold byte_val = int(v % 256)
+        check byte_val < 0
+            set byte_val = byte_val + 256
+        end
+        set result = result + chr(byte_val)
+        set v = v / 256
+    end
+    give result
+end
+
+craft _unpack_le64 data offset
+    hold result = 0
+    hold multiplier = 1
+    spin i from 0 to 8
+        hold b = ord(char_at(data, offset + i))
+        set result = result + b * multiplier
+        set multiplier = multiplier * 256
+    end
+    give result
+end
+
+craft pack_int32 val
+    give _pack_le32(val)
+end
+
+craft unpack_int32 data
+    give _unpack_le32(data, 0)
+end
+
+craft pack_int64 val
+    give _pack_le64(val)
+end
+
+craft unpack_int64 data
+    give _unpack_le64(data, 0)
+end
+
+craft _float_to_bytes f
+    hold tmp = "/tmp/mnos_f2b_" + str(int(time_now())) + ".bin"
+    hold cmd = "python3 -c \"import struct;import sys;sys.stdout.buffer.write(struct.pack('<d'," + str(f) + "))\" 2>/dev/null > '" + tmp + "'"
+    system(cmd)
+    hold data = read_file(tmp)
+    delete_file(tmp)
+    give data
+end
+
+craft _bytes_to_float data
+    hold tmp_in = "/tmp/mnos_b2f_" + str(int(time_now())) + ".bin"
+    hold tmp_out = "/tmp/mnos_b2fo_" + str(int(time_now())) + ".txt"
+    write_file(tmp_in, data)
+    hold cmd = "python3 -c \"import struct;print(struct.unpack('<d',open('" + tmp_in + "','rb').read())[0])\" 2>/dev/null > '" + tmp_out + "'"
+    system(cmd)
+    hold result = strip(read_file(tmp_out))
+    delete_file(tmp_in)
+    delete_file(tmp_out)
+    give float(result)
+end
+
+craft pack_float64 val
+    give _float_to_bytes(val)
+end
+
+craft unpack_float64 data
+    give _bytes_to_float(data)
+end
+
+craft pack_uint16 val
+    hold v = int(val)
+    hold b0 = chr(v % 256)
+    hold b1 = chr(v / 256)
+    give b0 + b1
+end
+
+craft unpack_uint16 data
+    hold b0 = ord(char_at(data, 0))
+    hold b1 = ord(char_at(data, 1))
+    give b0 + b1 * 256
+end
+
+craft pack_uint32 val
+    give _pack_le32(val)
+end
+
+craft unpack_uint32 data
+    give _unpack_le32(data, 0)
+end
+
+craft bytes_to_hex data
+    hold result = ""
+    spin i from 0 to len(data)
+        hold b = ord(char_at(data, i))
+        hold hex_chars = "0123456789abcdef"
+        hold hi = b / 16
+        hold lo = b % 16
+        set result = result + char_at(hex_chars, hi) + char_at(hex_chars, lo)
+    end
+    give result
+end
+
+craft hex_to_bytes hexstr
+    hold cleaned = replace(replace(lower(strip(hexstr)), " ", ""), "\n", "")
+    hold result = ""
+    hold i = 0
+    spin while i + 1 < len(cleaned)
+        hold hi = find("0123456789abcdef", char_at(cleaned, i))
+        hold lo = find("0123456789abcdef", char_at(cleaned, i + 1))
+        check hi < 0
+            set hi = 0
+        end
+        check lo < 0
+            set lo = 0
+        end
+        set result = result + chr(hi * 16 + lo)
+        set i = i + 2
+    end
+    give result
+end

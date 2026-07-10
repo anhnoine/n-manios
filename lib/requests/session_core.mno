@@ -1,0 +1,169 @@
+craft create_session
+    give vault {headers: vault {}, cookies: create_cookie_jar(), identity: vault {}, verify: true, trust_env: true, max_redirects: 30, adapter: https_adapter(), closed: false, hooks: vault {request: [], response: []}}
+end
+
+craft session_get sess url
+    give session_dispatch(sess, "GET", url, "")
+end
+
+craft session_post sess url data
+    give session_dispatch(sess, "POST", url, str(data))
+end
+
+craft session_put sess url data
+    give session_dispatch(sess, "PUT", url, str(data))
+end
+
+craft session_delete sess url
+    give session_dispatch(sess, "DELETE", url, "")
+end
+
+craft session_head sess url
+    give session_dispatch(sess, "HEAD", url, "")
+end
+
+craft session_options sess url
+    give session_dispatch(sess, "OPTIONS", url, "")
+end
+
+craft session_patch sess url data
+    give session_dispatch(sess, "PATCH", url, str(data))
+end
+
+craft session_dispatch sess method url data
+    check sess["closed"]
+        raise "Session is already closed"
+    end
+    hold req = build_request(method, url)
+    hold sess_heads = sess["headers"]
+    hold sh_keys = dkeys(sess_heads)
+    spin i from 0 to len(sh_keys)
+        hold k = sh_keys[i]
+        hold v = sess_heads[k]
+        check not has(req["heads"], k)
+            set req = set_header(req, k, v)
+        end
+    end
+    check data != ""
+        set req = set_body(req, data)
+        check not has(req["heads"], "content-type")
+            set req = req_content_type(req, "application/x-www-form-urlencoded")
+        end
+    end
+    check not has(req["heads"], "user-agent")
+        set req = req_user_agent(req, "ManiosRequests/1.0")
+    end
+    hold cookie_jar = sess["cookies"]
+    hold matched = jar_match_domain(cookie_jar, url)
+    hold cookie_header = jar_to_header(matched)
+    check cookie_header != ""
+        set req = set_header(req, "Cookie", cookie_header)
+    end
+    hold ident = sess["identity"]
+    check has(ident, "scheme") and ident["scheme"] != ""
+        set req = apply_auth(req, ident)
+    end
+    set req["certify"] = sess["verify"]
+    hold leap = req["leap"]
+    set leap["ceiling"] = sess["max_redirects"]
+    set req["leap"] = leap
+    hold adapter = sess["adapter"]
+    hold resp = adapter_execute(adapter, req)
+    hold resp_cookies = resp["cookies"]
+    check len(resp_cookies) > 0
+        hold ck_keys = dkeys(resp_cookies)
+        spin i from 0 to len(ck_keys)
+            hold ck = ck_keys[i]
+            hold cv = resp_cookies[ck]
+            hold domain = jar_extract_domain(url)
+            hold path = jar_extract_path(url)
+            hold slash_pos = find(path, "?")
+            check slash_pos > 0
+                set path = substr(path, 0, slash_pos)
+            end
+            hold last_slash = 0
+            spin j from 0 to len(path)
+                hold ch = char_at(path, j)
+                check ch == "/"
+                    set last_slash = j
+                end
+            end
+            check last_slash > 0
+                set path = substr(path, 0, last_slash)
+            end
+            set cookie_jar = jar_set(cookie_jar, ck, cv, domain, path)
+        end
+        set sess["cookies"] = cookie_jar
+    end
+    check has(resp["headers"], "set-cookie")
+        hold raw_cookies = resp["headers"]["set-cookie"]
+        hold new_jar = jar_from_header(raw_cookies)
+        set sess["cookies"] = jar_merge(sess["cookies"], new_jar)
+    end
+    give resp
+end
+
+craft session_close sess
+    set sess["cookies"] = create_cookie_jar()
+    set sess["closed"] = true
+    give sess
+end
+
+craft session_set_cookie sess name value
+    hold jar = sess["cookies"]
+    set sess["cookies"] = jar_set(jar, name, value, "", "/")
+    give sess
+end
+
+craft session_get_cookies sess
+    hold jar = sess["cookies"]
+    give jar_get_all(jar)
+end
+
+craft session_set_headers sess dict
+    hold current = sess["headers"]
+    hold klist = dkeys(dict)
+    spin i from 0 to len(klist)
+        hold k = klist[i]
+        set current[k] = dict[k]
+    end
+    set sess["headers"] = current
+    give sess
+end
+
+craft session_set_auth sess auth_dict
+    set sess["identity"] = auth_dict
+    give sess
+end
+
+craft session_set_verify sess verify
+    set sess["verify"] = verify
+    give sess
+end
+
+craft session_set_redirects sess max_count
+    set sess["max_redirects"] = max_count
+    give sess
+end
+
+craft session_set_adapter sess adapter
+    set sess["adapter"] = adapter
+    give sess
+end
+
+craft session_cookie_count sess
+    hold jar = sess["cookies"]
+    give jar_count(jar)
+end
+
+craft session_delete_cookie sess name
+    hold jar = sess["cookies"]
+    set sess["cookies"] = jar_delete(jar, name)
+    give sess
+end
+
+craft session_clear_cookies sess
+    hold jar = sess["cookies"]
+    set sess["cookies"] = jar_clear(jar)
+    give sess
+end

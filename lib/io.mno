@@ -1,0 +1,52 @@
+craft io_open path mode
+    give path_exists(path)
+end
+
+craft io_read path
+    give read_file(path)
+end
+
+craft io_readlines path
+    give read_lines(path)
+end
+
+craft io_write path data
+    give write_file(path, data)
+end
+
+craft io_append path data
+    give append_file(path, data)
+end
+
+craft io_close fd
+    give val_none()
+end
+
+craft io_exists path
+    give file_exists(path)
+end
+
+craft io_size path
+    give file_size(path)
+end
+
+craft io_mkdir path
+    give make_dir(path)
+end
+
+craft io_remove path
+    give delete_file(path)
+end
+
+craft io_copy src dst
+    give copy_file(src, dst)
+end
+
+craft io_lines path
+    hold content = read_file(path)
+    give split(content, "\n")
+end
+
+craft io_input prompt
+    give input(prompt)
+end

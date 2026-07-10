@@ -1,0 +1,135 @@
+craft os_name
+    give sys_platform()
+end
+
+craft os_sep
+    give "/"
+end
+
+craft os_line_sep
+    give "\n"
+end
+
+craft os_curdir
+    give "."
+end
+
+craft os_pardir
+    give ".."
+end
+
+craft os_extsep
+    give "."
+end
+
+craft os_devnull
+    give "/dev/null"
+end
+
+craft os_path_join parts
+    give path_join(parts[0], parts[1])
+end
+
+craft os_basename path
+    give path_name(path)
+end
+
+craft os_dirname path
+    give parent_dir(path)
+end
+
+craft os_exists path
+    give path_exists(path)
+end
+
+craft os_isfile path
+    give is_file(path)
+end
+
+craft os_isdir path
+    give is_dir(path)
+end
+
+craft os_mkdir path
+    give make_dir(path)
+end
+
+craft os_mkdirs path
+    hold parts = split(path, "/")
+    hold cur = ""
+    spin i from 0 to len(parts) - 2
+        set cur = path_join(cur, parts[i])
+        make_dir(cur)
+    end
+    give path_exists(path_join(cur, parts[len(parts) - 1]))
+end
+
+craft os_remove path
+    give delete_file(path)
+end
+
+craft os_listdir path
+    give list_dir(path)
+end
+
+craft os_readfile path
+    give read_file(path)
+end
+
+craft os_writefile path data
+    give write_file(path, data)
+end
+
+craft os_getenv name
+    give env_get(name)
+end
+
+craft os_environ
+    hold e = []
+    give e
+end
+
+craft os_system cmd
+    give system(cmd)
+end
+
+craft os_stat path
+    hold s = vault {}
+    set dict_set(s, "size", file_size(path))
+    set dict_set(s, "exists", path_exists(path))
+    set dict_set(s, "is_file", is_file(path))
+    set dict_set(s, "is_dir", is_dir(path))
+    give s
+end
+
+craft os_walk top
+    hold result = []
+    push top into result
+    hold items = list_dir(top)
+    spin i from 0 to len(items)
+        hold full = path_join(top, items[i])
+        check is_dir(full)
+            hold sub = os_walk(full)
+            spin j from 0 to len(sub)
+                push sub[j] into result
+            end
+        end
+    end
+    give result
+end
+
+craft os_access path mode
+    give path_exists(path)
+end
+
+craft os_rename old new
+    give move_file(old, new)
+end
+
+craft os_copy src dst
+    give copy_file(src, dst)
+end
+
+craft os_path_abs path
+    give abs_path(path)
+end

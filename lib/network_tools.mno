@@ -1,0 +1,356 @@
+craft net_is_reachable host
+    hold cmd = "ping -c 1 -W 3 '" + replace(host, "'", "'\\''") + "' 2>/dev/null | grep '1 received' > /dev/null && echo 'yes' || echo 'no'"
+    hold out = strip(system(cmd))
+    check out == "yes"
+        give true
+    or
+        give false
+    end
+end
+
+craft net_dns_lookup host
+    hold cmd = "dig +short '" + replace(host, "'", "'\\''") + "' A 2>/dev/null"
+    hold out = strip(system(cmd))
+    hold lines = split(out, "\n")
+    hold result = []
+    spin i from 0 to len(lines)
+        hold line = strip(lines[i])
+        check len(line) > 0 and not contains(line, ";")
+            push line into result
+        end
+    end
+    check len(result) == 0
+        hold cmd2 = "getent hosts '" + replace(host, "'", "'\\''") + "' 2>/dev/null | awk '{print $1}'"
+        hold out2 = strip(system(cmd2))
+        check len(out2) > 0
+            push out2 into result
+        end
+    end
+    give result
+end
+
+craft net_download url path
+    hold cmd = "curl -sL '" + replace(url, "'", "'\\''") + "' -o '" + replace(path, "'", "'\\''") + "' 2>/dev/null"
+    system(cmd)
+    give file_exists(path)
+end
+
+craft net_upload url filepath
+    hold cmd = "curl -sL -X POST -F 'file=@\"" + replace(filepath, "'", "'\\''") + "\"' '" + replace(url, "'", "'\\''") + "' 2>/dev/null"
+    give system(cmd)
+end
+
+craft net_ip_info
+    hold info = vault {}
+    hold hostname = strip(system("hostname 2>/dev/null"))
+    dict_set(info, "hostname", hostname)
+    hold local_ip = strip(system("hostname -I 2>/dev/null | awk '{print $1}'"))
+    dict_set(info, "local_ip", local_ip)
+    hold default_iface = strip(system("ip route 2>/dev/null | awk '/default/{print $5}' | head -1"))
+    dict_set(info, "default_interface", default_iface)
+    hold gateway = strip(system("ip route 2>/dev/null | awk '/default/{print $3}' | head -1"))
+    dict_set(info, "gateway", gateway)
+    hold public_ip = strip(system("curl -sL ifconfig.me 2>/dev/null"))
+    dict_set(info, "public_ip", public_ip)
+    give info
+end
+
+craft net_ping host
+    hold cmd = "ping -c 1 -W 2 '" + replace(host, "'", "'\\''") + "' 2>/dev/null | grep -c 'time='"
+    hold out = strip(system(cmd))
+    check out == "1" or out == "2" or out == "3" or out == "4"
+        give true
+    or
+        give false
+    end
+end
+
+craft net_port_open host port
+    hold cmd = "timeout 3 bash -c 'echo > /dev/tcp/" + replace(host, "'", "'\\''") + "/" + str(port) + "' 2>/dev/null && echo 'open' || echo 'closed'"
+    hold out = strip(system(cmd))
+    check out == "open"
+        give true
+    or
+        give false
+    end
+end
+
+craft net_url_parse url
+    hold u = vault {}
+    hold scheme_end = find(url, "://")
+    check scheme_end > 0
+        dict_set(u, "scheme", substr(url, 0, scheme_end))
+        hold rest = substr(url, scheme_end + 3, len(url) - scheme_end - 3)
+    or
+        dict_set(u, "scheme", "http")
+        hold rest = url
+    end
+    hold slash_pos = find(rest, "/")
+    hold authority = rest
+    hold path_str = "/"
+    hold query_str = ""
+    hold fragment_str = ""
+    check slash_pos >= 0
+        set authority = substr(rest, 0, slash_pos)
+        set path_str = substr(rest, slash_pos, len(rest) - slash_pos)
+    end
+    hold q_pos = find(path_str, "?")
+    check q_pos >= 0
+        set query_str = substr(path_str, q_pos + 1, len(path_str) - q_pos - 1)
+        set path_str = substr(path_str, 0, q_pos)
+    end
+    hold f_pos = find(query_str, "#")
+    check f_pos >= 0
+        set fragment_str = substr(query_str, f_pos + 1, len(query_str) - f_pos - 1)
+        set query_str = substr(query_str, 0, f_pos)
+    end
+    hold colon_pos = find(authority, ":")
+    hold host_str = authority
+    hold port_num = 80
+    check colon_pos > 0
+        set host_str = substr(authority, 0, colon_pos)
+        hold port_str = substr(authority, colon_pos + 1, len(authority) - colon_pos - 1)
+        check len(port_str) > 0
+            set port_num = int(port_str)
+        end
+    end
+    check dict_get(u, "scheme") == "https"
+        set port_num = 443
+    end
+    dict_set(u, "host", host_str)
+    dict_set(u, "port", port_num)
+    dict_set(u, "path", path_str)
+    dict_set(u, "query", query_str)
+    dict_set(u, "fragment", fragment_str)
+    give u
+end
+
+craft net_url_build parts_dict
+    hold scheme = dict_get(parts_dict, "scheme")
+    hold host = dict_get(parts_dict, "host")
+    hold port = dict_get(parts_dict, "port")
+    hold path_str = dict_get(parts_dict, "path")
+    hold query_str = dict_get(parts_dict, "query")
+    hold fragment_str = dict_get(parts_dict, "fragment")
+    hold url = scheme + "://" + host
+    check scheme == "http" and port != 80
+        set url = url + ":" + str(port)
+    or
+        check scheme == "https" and port != 443
+            set url = url + ":" + str(port)
+        end
+    end
+    set url = url + path_str
+    check len(query_str) > 0
+        set url = url + "?" + query_str
+    end
+    check len(fragment_str) > 0
+        set url = url + "#" + fragment_str
+    end
+    give url
+end
+
+craft net_query_parse query_string
+    hold d = vault {}
+    check len(query_string) == 0
+        give d
+    end
+    hold pairs = split(query_string, "&")
+    spin i from 0 to len(pairs)
+        hold eq_pos = find(pairs[i], "=")
+        check eq_pos > 0
+            hold key = substr(pairs[i], 0, eq_pos)
+            hold val = substr(pairs[i], eq_pos + 1, len(pairs[i]) - eq_pos - 1)
+            set key = replace(replace(key, "+", " "), "%20", " ")
+            set val = replace(replace(val, "+", " "), "%20", " ")
+            set key = replace(replace(key, "%2F", "/"), "%3A", ":")
+            set val = replace(replace(val, "%2F", "/"), "%3A", ":")
+            dict_set(d, key, val)
+        or
+            check len(pairs[i]) > 0
+                dict_set(d, pairs[i], "")
+            end
+        end
+    end
+    give d
+end
+
+craft net_query_build params_dict
+    hold keys = dict_keys(params_dict)
+    hold pairs = []
+    spin i from 0 to len(keys)
+        hold key = replace(replace(keys[i], " ", "+"), "/", "%2F")
+        hold val = replace(replace(str(dict_get(params_dict, keys[i])), " ", "+"), "/", "%2F")
+        push key + "=" + val into pairs
+    end
+    give join(pairs, "&")
+end
+
+craft net_is_valid_url url
+    check not starts_with(url, "http://") and not starts_with(url, "https://")
+        give false
+    end
+    hold parsed = net_url_parse(url)
+    hold h = dict_get(parsed, "host")
+    check len(h) == 0
+        give false
+    end
+    check contains(h, " ") or contains(h, "\"")
+        give false
+    end
+    give true
+end
+
+craft net_is_valid_email email
+    hold at_pos = find(email, "@")
+    check at_pos <= 0
+        give false
+    end
+    hold dot_pos = find(substr(email, at_pos, len(email) - at_pos), ".")
+    check dot_pos <= 1
+        give false
+    end
+    hold local = substr(email, 0, at_pos)
+    hold domain = substr(email, at_pos + 1, len(email) - at_pos - 1)
+    check contains(local, " ") or contains(domain, " ")
+        give false
+    end
+    check len(local) == 0 or len(domain) == 0
+        give false
+    end
+    give true
+end
+
+craft net_is_valid_ip ip
+    hold parts = split(ip, ".")
+    check len(parts) != 4
+        give false
+    end
+    spin i from 0 to 4
+        hold p = parts[i]
+        check len(p) == 0 or not isdigit(p)
+            give false
+        end
+        hold num = int(p)
+        check num < 0 or num > 255
+            give false
+        end
+        check len(str(num)) != len(p)
+            give false
+        end
+    end
+    give true
+end
+
+craft net_http_status code
+    hold codes = vault {}
+    dict_set(codes, "100", "Continue")
+    dict_set(codes, "101", "Switching Protocols")
+    dict_set(codes, "200", "OK")
+    dict_set(codes, "201", "Created")
+    dict_set(codes, "202", "Accepted")
+    dict_set(codes, "204", "No Content")
+    dict_set(codes, "301", "Moved Permanently")
+    dict_set(codes, "302", "Found")
+    dict_set(codes, "303", "See Other")
+    dict_set(codes, "304", "Not Modified")
+    dict_set(codes, "307", "Temporary Redirect")
+    dict_set(codes, "308", "Permanent Redirect")
+    dict_set(codes, "400", "Bad Request")
+    dict_set(codes, "401", "Unauthorized")
+    dict_set(codes, "403", "Forbidden")
+    dict_set(codes, "404", "Not Found")
+    dict_set(codes, "405", "Method Not Allowed")
+    dict_set(codes, "408", "Request Timeout")
+    dict_set(codes, "409", "Conflict")
+    dict_set(codes, "410", "Gone")
+    dict_set(codes, "413", "Payload Too Large")
+    dict_set(codes, "429", "Too Many Requests")
+    dict_set(codes, "500", "Internal Server Error")
+    dict_set(codes, "502", "Bad Gateway")
+    dict_set(codes, "503", "Service Unavailable")
+    dict_set(codes, "504", "Gateway Timeout")
+    hold key = str(code)
+    check dict_has(codes, key)
+        give dict_get(codes, key)
+    or
+        give "Unknown"
+    end
+end
+
+craft net_mime_type filename
+    hold ext = lower(path_ext(filename))
+    hold mimes = vault {}
+    dict_set(mimes, ".html", "text/html")
+    dict_set(mimes, ".htm", "text/html")
+    dict_set(mimes, ".css", "text/css")
+    dict_set(mimes, ".js", "application/javascript")
+    dict_set(mimes, ".json", "application/json")
+    dict_set(mimes, ".xml", "application/xml")
+    dict_set(mimes, ".txt", "text/plain")
+    dict_set(mimes, ".csv", "text/csv")
+    dict_set(mimes, ".md", "text/markdown")
+    dict_set(mimes, ".png", "image/png")
+    dict_set(mimes, ".jpg", "image/jpeg")
+    dict_set(mimes, ".jpeg", "image/jpeg")
+    dict_set(mimes, ".gif", "image/gif")
+    dict_set(mimes, ".svg", "image/svg+xml")
+    dict_set(mimes, ".ico", "image/x-icon")
+    dict_set(mimes, ".webp", "image/webp")
+    dict_set(mimes, ".pdf", "application/pdf")
+    dict_set(mimes, ".zip", "application/zip")
+    dict_set(mimes, ".tar", "application/x-tar")
+    dict_set(mimes, ".gz", "application/gzip")
+    dict_set(mimes, ".bz2", "application/x-bzip2")
+    dict_set(mimes, ".7z", "application/x-7z-compressed")
+    dict_set(mimes, ".mp3", "audio/mpeg")
+    dict_set(mimes, ".mp4", "video/mp4")
+    dict_set(mimes, ".wav", "audio/wav")
+    dict_set(mimes, ".ogg", "audio/ogg")
+    dict_set(mimes, ".webm", "video/webm")
+    dict_set(mimes, ".avi", "video/x-msvideo")
+    dict_set(mimes, ".mov", "video/quicktime")
+    dict_set(mimes, ".mkv", "video/x-matroska")
+    dict_set(mimes, ".doc", "application/msword")
+    dict_set(mimes, ".docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+    dict_set(mimes, ".xls", "application/vnd.ms-excel")
+    dict_set(mimes, ".xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    dict_set(mimes, ".ppt", "application/vnd.ms-powerpoint")
+    dict_set(mimes, ".pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation")
+    dict_set(mimes, ".odt", "application/vnd.oasis.opendocument.text")
+    dict_set(mimes, ".ods", "application/vnd.oasis.opendocument.spreadsheet")
+    dict_set(mimes, ".sh", "application/x-sh")
+    dict_set(mimes, ".bin", "application/octet-stream")
+    dict_set(mimes, ".exe", "application/octet-stream")
+    dict_set(mimes, ".dll", "application/octet-stream")
+    dict_set(mimes, ".so", "application/octet-stream")
+    dict_set(mimes, ".py", "text/x-python")
+    dict_set(mimes, ".c", "text/x-c")
+    dict_set(mimes, ".h", "text/x-c")
+    dict_set(mimes, ".java", "text/x-java")
+    dict_set(mimes, ".rs", "text/x-rust")
+    dict_set(mimes, ".go", "text/x-go")
+    dict_set(mimes, ".ts", "application/typescript")
+    dict_set(mimes, ".wasm", "application/wasm")
+    dict_set(mimes, ".mno", "text/x-manios")
+    dict_set(mimes, ".yml", "text/yaml")
+    dict_set(mimes, ".yaml", "text/yaml")
+    dict_set(mimes, ".toml", "text/toml")
+    dict_set(mimes, ".ini", "text/plain")
+    dict_set(mimes, ".cfg", "text/plain")
+    dict_set(mimes, ".conf", "text/plain")
+    dict_set(mimes, ".log", "text/plain")
+    dict_set(mimes, ".sql", "application/sql")
+    dict_set(mimes, ".db", "application/x-sqlite3")
+    dict_set(mimes, ".sqlite", "application/x-sqlite3")
+    dict_set(mimes, ".ttf", "font/ttf")
+    dict_set(mimes, ".otf", "font/otf")
+    dict_set(mimes, ".woff", "font/woff")
+    dict_set(mimes, ".woff2", "font/woff2")
+    dict_set(mimes, ".eot", "application/vnd.ms-fontobject")
+    check dict_has(mimes, ext)
+        give dict_get(mimes, ext)
+    or
+        give "application/octet-stream"
+    end
+end

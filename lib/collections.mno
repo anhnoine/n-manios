@@ -1,0 +1,243 @@
+craft counter items
+    hold c = vault {}
+    spin i from 0 to len(items)
+        hold k = str(items[i])
+        check dict_has(c, k)
+            dict_set(c, k, dict_get(c, k) + 1)
+        or
+            dict_set(c, k, 1)
+        end
+    end
+    give c
+end
+
+craft counter_most_common cnt n
+    hold keys = dict_keys(cnt)
+    hold pairs = []
+    spin i from 0 to len(keys)
+        hold pair = [keys[i], dict_get(cnt, keys[i])]
+        push pair into pairs
+    end
+    hold sorted_pairs = sort(pairs)
+    hold result = []
+    hold count = n
+    check count > len(sorted_pairs)
+        set count = len(sorted_pairs)
+    end
+    spin i from 0 to count
+        push sorted_pairs[len(sorted_pairs) - 1 - i] into result
+    end
+    give result
+end
+
+craft ordered_dict
+    hold od = []
+    give od
+end
+
+craft odict_set od key val
+    spin i from 0 to len(od)
+        check od[i][0] == key
+            set od[i][1] = val
+            give od
+        end
+    end
+    hold pair = [key, val]
+    push pair into od
+    give od
+end
+
+craft odict_get od key
+    spin i from 0 to len(od)
+        check od[i][0] == key
+            give od[i][1]
+        end
+    end
+    give val_none()
+end
+
+craft odict_keys od
+    hold keys = []
+    spin i from 0 to len(od)
+        push od[i][0] into keys
+    end
+    give keys
+end
+
+craft odict_vals od
+    hold vals = []
+    spin i from 0 to len(od)
+        push od[i][1] into vals
+    end
+    give vals
+end
+
+craft odict_has od key
+    spin i from 0 to len(od)
+        check od[i][0] == key
+            give true
+        end
+    end
+    give false
+end
+
+craft odict_items od
+    hold items = []
+    spin i from 0 to len(od)
+        hold item = [od[i][0], od[i][1]]
+        push item into items
+    end
+    give items
+end
+
+craft named_tuple type_name field_names_str
+    hold fields = split(strip(field_names_str), " ")
+    hold nt = vault {}
+    dict_set(nt, "type_name", type_name)
+    dict_set(nt, "fields", fields)
+    give nt
+end
+
+craft nt_create nt_def values
+    hold fields = dict_get(nt_def, "fields")
+    hold inst = vault {}
+    dict_set(inst, "__nt_type__", dict_get(nt_def, "type_name"))
+    spin i from 0 to len(fields)
+        check i < len(values)
+            dict_set(inst, fields[i], values[i])
+        or
+            dict_set(inst, fields[i], val_none())
+        end
+    end
+    give inst
+end
+
+craft deque
+    hold dq = vault {}
+    dict_set(dq, "items", [])
+    give dq
+end
+
+craft deque_append dq item
+    hold items = dict_get(dq, "items")
+    push item into items
+    dict_set(dq, "items", items)
+    give val_none()
+end
+
+craft deque_appendleft dq item
+    hold items = dict_get(dq, "items")
+    hold new_items = [item]
+    spin i from 0 to len(items)
+        push items[i] into new_items
+    end
+    dict_set(dq, "items", new_items)
+    give val_none()
+end
+
+craft deque_pop dq
+    hold items = dict_get(dq, "items")
+    check len(items) == 0
+        raise "pop from empty deque"
+    end
+    hold val = items[len(items) - 1]
+    hold new_items = []
+    spin i from 0 to len(items) - 1
+        push items[i] into new_items
+    end
+    dict_set(dq, "items", new_items)
+    give val
+end
+
+craft deque_popleft dq
+    hold items = dict_get(dq, "items")
+    check len(items) == 0
+        raise "popleft from empty deque"
+    end
+    hold val = items[0]
+    hold new_items = []
+    spin i from 1 to len(items)
+        push items[i] into new_items
+    end
+    dict_set(dq, "items", new_items)
+    give val
+end
+
+craft deque_peek dq
+    hold items = dict_get(dq, "items")
+    check len(items) == 0
+        give val_none()
+    or
+        give items[len(items) - 1]
+    end
+end
+
+craft deque_peekleft dq
+    hold items = dict_get(dq, "items")
+    check len(items) == 0
+        give val_none()
+    or
+        give items[0]
+    end
+end
+
+craft deque_len dq
+    hold items = dict_get(dq, "items")
+    give len(items)
+end
+
+craft deque_to_list dq
+    hold items = dict_get(dq, "items")
+    give items
+end
+
+craft chain a b
+    hold result = []
+    spin i from 0 to len(a)
+        push a[i] into result
+    end
+    spin i from 0 to len(b)
+        push b[i] into result
+    end
+    give result
+end
+
+craft default_dict default_factory_name initial_dict
+    hold dd = vault {}
+    dict_set(dd, "factory", default_factory_name)
+    dict_set(dd, "data", initial_dict)
+    give dd
+end
+
+craft dd_get dd key
+    hold data = dict_get(dd, "data")
+    check dict_has(data, key)
+        give dict_get(data, key)
+    or
+        hold factory = dict_get(dd, "factory")
+        check factory == "int"
+            give 0
+        or
+            check factory == "float"
+                give 0.0
+            or
+                check factory == "str"
+                    give ""
+                or
+                    check factory == "list"
+                        give []
+                    or
+                        give val_none()
+                    end
+                end
+            end
+        end
+    end
+end
+
+craft dd_set dd key val
+    hold data = dict_get(dd, "data")
+    dict_set(data, key, val)
+    dict_set(dd, "data", data)
+    give val_none()
+end

@@ -1,0 +1,273 @@
+craft os_name
+    hold uname_out = lower(strip(system("uname -s 2>/dev/null")))
+    check contains(uname_out, "linux")
+        give "linux"
+    or
+        check contains(uname_out, "darwin")
+            give "darwin"
+        or
+            give "unknown"
+        end
+    end
+end
+
+craft os_platform
+    hold uname_a = strip(system("uname -a 2>/dev/null"))
+    give uname_a
+end
+
+craft os_arch
+    give strip(system("uname -m 2>/dev/null"))
+end
+
+craft os_pid
+    give int(strip(system("echo $$ 2>/dev/null")))
+end
+
+craft os_ppid
+    give int(strip(system("echo $PPID 2>/dev/null")))
+end
+
+craft os_hostname
+    give strip(system("hostname 2>/dev/null"))
+end
+
+craft os_username
+    give strip(system("whoami 2>/dev/null"))
+end
+
+craft os_home
+    give strip(system("echo $HOME 2>/dev/null"))
+end
+
+craft os_temp_dir
+    give strip(system("echo $TMPDIR 2>/dev/null"))
+end
+
+craft os_cpu_count
+    hold nproc_out = strip(system("nproc 2>/dev/null"))
+    check len(nproc_out) > 0 and isdigit(nproc_out)
+        give int(nproc_out)
+    or
+        hold cpuinfo = strip(system("grep -c '^processor' /proc/cpuinfo 2>/dev/null"))
+        check len(cpuinfo) > 0 and isdigit(cpuinfo)
+            give int(cpuinfo)
+        or
+            give 1
+        end
+    end
+end
+
+craft os_memory
+    hold meminfo = system("awk '/MemTotal/{t=$2} /MemAvailable/{a=$2} END{print t,a,t-a}' /proc/meminfo 2>/dev/null")
+    hold parts = split(strip(meminfo), " ")
+    hold m = vault {}
+    check len(parts) >= 3
+        dict_set(m, "total", int(parts[0]) * 1024)
+        dict_set(m, "available", int(parts[1]) * 1024)
+        dict_set(m, "used", int(parts[2]) * 1024)
+        dict_set(m, "free", int(parts[1]) * 1024)
+    or
+        dict_set(m, "total", 0)
+        dict_set(m, "used", 0)
+        dict_set(m, "free", 0)
+    end
+    give m
+end
+
+craft os_disk_usage path
+    hold df_out = system("df -k '" + replace(path, "'", "'\\''") + "' 2>/dev/null | awk 'NR==2{print $2,$3,$4}'")
+    hold parts = split(strip(df_out), " ")
+    hold d = vault {}
+    check len(parts) >= 3
+        dict_set(d, "total", int(parts[0]) * 1024)
+        dict_set(d, "used", int(parts[1]) * 1024)
+        dict_set(d, "free", int(parts[2]) * 1024)
+    or
+        dict_set(d, "total", 0)
+        dict_set(d, "used", 0)
+        dict_set(d, "free", 0)
+    end
+    give d
+end
+
+craft os_uptime
+    hold out = strip(system("cat /proc/uptime 2>/dev/null | awk '{print $1}'"))
+    check len(out) > 0
+        give int(float(out))
+    or
+        give 0
+    end
+end
+
+craft os_load_avg
+    hold out = strip(system("cat /proc/loadavg 2>/dev/null | awk '{print $1,$2,$3}'"))
+    hold parts = split(out, " ")
+    hold l = vault {}
+    check len(parts) >= 3
+        dict_set(l, "1min", float(parts[0]))
+        dict_set(l, "5min", float(parts[1]))
+        dict_set(l, "15min", float(parts[2]))
+    or
+        dict_set(l, "1min", 0.0)
+        dict_set(l, "5min", 0.0)
+        dict_set(l, "15min", 0.0)
+    end
+    give l
+end
+
+craft os_env_all
+    hold env_out = system("env 2>/dev/null")
+    hold lines = split(strip(env_out), "\n")
+    hold d = vault {}
+    spin i from 0 to len(lines)
+        hold eq_pos = find(lines[i], "=")
+        check eq_pos > 0
+            hold key = substr(lines[i], 0, eq_pos)
+            hold val = substr(lines[i], eq_pos + 1, len(lines[i]) - eq_pos - 1)
+            dict_set(d, key, val)
+        end
+    end
+    give d
+end
+
+craft os_expanduser path
+    hold result = path
+    check starts_with(result, "~/") or result == "~"
+        hold home = os_home()
+        set result = replace(result, "~", home)
+    end
+    give result
+end
+
+craft os_walk path
+    hold result = []
+    spin while true
+        check is_file(path)
+            push path into result
+            give result
+        end
+        check is_dir(path)
+            push path into result
+            hold items = list_dir(path)
+            spin i from 0 to len(items)
+                hold full = path_join(path, items[i])
+                check starts_with(items[i], ".")
+                or
+                    hold sub = os_walk(full)
+                    spin j from 0 to len(sub)
+                        push sub[j] into result
+                    end
+                end
+            end
+            give result
+        end
+        give result
+    end
+end
+
+craft os_tree path
+    hold lines = []
+    hold prefix_components = []
+    push "" into lines
+    hold _tree_helper = vault {}
+    dict_set(_tree_helper, "lines", lines)
+    dict_set(_tree_helper, "prefix", prefix_components)
+    _os_tree_build(path, _tree_helper, "")
+    give join(dict_get(_tree_helper, "lines"), "\n")
+end
+
+craft _os_tree_build path helper indent
+    hold name = path_name(path)
+    hold display = indent + name
+    check is_dir(path)
+        set display = display + "/"
+    end
+    hold lines = dict_get(helper, "lines")
+    push display into lines
+    dict_set(helper, "lines", lines)
+    check is_dir(path)
+        hold items = list_dir(path)
+        hold filtered = []
+        spin i from 0 to len(items)
+            check not starts_with(items[i], ".")
+                push items[i] into filtered
+            end
+        end
+        spin i from 0 to len(filtered)
+            hold full = path_join(path, filtered[i])
+            hold new_indent = indent + "  "
+            check i == len(filtered) - 1
+                set new_indent = indent + "  "
+            end
+            _os_tree_build(full, helper, new_indent)
+        end
+    end
+end
+
+craft os_which_all name
+    hold result = []
+    hold out = strip(system("type -ap " + name + " 2>/dev/null"))
+    check len(out) > 0
+        hold lines = split(out, "\n")
+        spin i from 0 to len(lines)
+            hold line = strip(lines[i])
+            check len(line) > 0 and starts_with(line, "/")
+                push line into result
+            end
+        end
+    end
+    give result
+end
+
+craft os_is_root
+    hold id_out = strip(system("id -u 2>/dev/null"))
+    check id_out == "0"
+        give true
+    or
+        give false
+    end
+end
+
+craft os_kill pid sig
+    hold cmd = "kill -" + str(sig) + " " + str(pid) + " 2>/dev/null"
+    system(cmd)
+    give val_none()
+end
+
+craft os_cpu_info
+    give strip(system("cat /proc/cpuinfo 2>/dev/null | head -30"))
+end
+
+craft os_user_info
+    hold u = vault {}
+    dict_set(u, "name", strip(system("whoami 2>/dev/null")))
+    dict_set(u, "uid", int(strip(system("id -u 2>/dev/null"))))
+    dict_set(u, "gid", int(strip(system("id -g 2>/dev/null"))))
+    dict_set(u, "home", strip(system("echo $HOME 2>/dev/null")))
+    dict_set(u, "shell", strip(system("echo $SHELL 2>/dev/null")))
+    give u
+end
+
+craft os_process_list
+    hold out = system("ps aux 2>/dev/null")
+    give strip(out)
+end
+
+craft os_file_stat path
+    hold s = vault {}
+    dict_set(s, "path", path)
+    dict_set(s, "exists", path_exists(path))
+    dict_set(s, "is_file", is_file(path))
+    dict_set(s, "is_dir", is_dir(path))
+    dict_set(s, "size", file_size(path))
+    hold stat_out = strip(system("stat -c '%a %U %G %Y' '" + replace(path, "'", "'\\''") + "' 2>/dev/null"))
+    hold sparts = split(stat_out, " ")
+    check len(sparts) >= 4
+        dict_set(s, "permissions", sparts[0])
+        dict_set(s, "owner", sparts[1])
+        dict_set(s, "group", sparts[2])
+        dict_set(s, "mtime", int(sparts[3]))
+    end
+    give s
+end

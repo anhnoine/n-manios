@@ -1,0 +1,105 @@
+craft re_escape text
+    hold result = ""
+    hold specials = ".^$*+?{}[]\\|()/"
+    spin i from 0 to len(text)
+        hold c = char_at(text, i)
+        check contains(specials, c)
+            set result = result + "\\"
+        end
+        set result = result + c
+    end
+    give result
+end
+
+craft re_match pattern text
+    hold esc = re_escape(pattern)
+    hold cmd = "printf '%s' '" + replace(replace(text, "'", "'\\''"), "\n", "\\n") + "' | grep -cE '^" + esc + "$' 2>/dev/null"
+    hold out = strip(system(cmd))
+    check out == "1"
+        hold lines = split(text, "\n")
+        hold first_line = lines[0]
+        hold cmd2 = "printf '%s' '" + replace(replace(first_line, "'", "'\\''"), "\n", "\\n") + "' | sed -E 's/.*(" + esc + ").*/\\1/' 2>/dev/null"
+        hold matched = strip(system(cmd2))
+        hold r = vault {}
+        dict_set(r, "matched", true)
+        dict_set(r, "value", matched)
+        dict_set(r, "start", 0)
+        dict_set(r, "end", len(matched))
+        give r
+    or
+        give val_none()
+    end
+end
+
+craft re_search pattern text
+    hold cmd = "printf '%s' '" + replace(replace(text, "'", "'\\''"), "\n", "\\n") + "' | grep -oE '" + pattern + "' 2>/dev/null | head -1"
+    hold out = strip(system(cmd))
+    check len(out) > 0
+        hold pos = find(text, out)
+        hold r = vault {}
+        dict_set(r, "matched", true)
+        dict_set(r, "value", out)
+        dict_set(r, "start", pos)
+        dict_set(r, "end", pos + len(out))
+        give r
+    or
+        give val_none()
+    end
+end
+
+craft re_findall pattern text
+    hold cmd = "printf '%s' '" + replace(replace(text, "'", "'\\''"), "\n", "\\n") + "' | grep -oE '" + pattern + "' 2>/dev/null"
+    hold out = system(cmd)
+    hold lines = split(strip(out), "\n")
+    hold results = []
+    spin i from 0 to len(lines)
+        check len(strip(lines[i])) > 0
+            push strip(lines[i]) into results
+        end
+    end
+    give results
+end
+
+craft re_sub pattern replacement text
+    hold safe_repl = replace(replacement, "&", "\\&")
+    set safe_repl = replace(safe_repl, "/", "\\/")
+    hold cmd = "printf '%s' '" + replace(replace(text, "'", "'\\''"), "\n", "\\n") + "' | sed -E 's/" + pattern + "/" + safe_repl + "/g' 2>/dev/null"
+    give strip(system(cmd))
+end
+
+craft re_split pattern text
+    hold tmpfile = "/tmp/mnos_re_split_" + str(int(time_now())) + ".txt"
+    hold safe_text = replace(replace(text, "'", "'\\''"), "\n", "\\n")
+    hold cmd = "printf '%s' '" + safe_text + "' | sed -E 's/" + pattern + "/\\n/g' 2>/dev/null > '" + tmpfile + "'"
+    system(cmd)
+    hold content = read_file(tmpfile)
+    delete_file(tmpfile)
+    hold parts = split(content, "\n")
+    give parts
+end
+
+craft re_compile pattern
+    hold c = vault {}
+    dict_set(c, "pattern", pattern)
+    give c
+end
+
+craft compiled_find compiled text
+    hold pat = dict_get(compiled, "pattern")
+    give re_search(pat, text)
+end
+
+craft compiled_match compiled text
+    hold pat = dict_get(compiled, "pattern")
+    give re_match(pat, text)
+end
+
+craft compiled_sub compiled repl text
+    hold pat = dict_get(compiled, "pattern")
+    give re_sub(pat, repl, text)
+end
+
+craft compiled_split compiled text
+    hold pat = dict_get(compiled, "pattern")
+    give re_split(pat, text)
+end

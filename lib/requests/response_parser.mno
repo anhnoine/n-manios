@@ -1,0 +1,253 @@
+craft parse_response raw_text
+    hold result = vault {status_code: 0, headers: vault {}, body: "", text: "", elapsed: 0.0, encoding: "utf-8", ok: false, reason: "", url: "", cookies: vault {}}
+    hold lines = split(raw_text, "\n")
+    hold line_count = len(lines)
+    check line_count >= 3
+        hold last_line = lines[line_count - 1]
+        hold second_last = lines[line_count - 2]
+        hold elapsed = 0.0
+        hold status_code = 0
+        shield
+            set elapsed = float(last_line)
+        when e
+            set elapsed = 0.0
+        end
+        shield
+            set status_code = int(second_last)
+        when e
+            set status_code = 0
+        end
+        set result["elapsed"] = elapsed
+        set result["status_code"] = status_code
+        check status_code >= 200 and status_code < 300
+            set result["ok"] = true
+        or
+            set result["ok"] = false
+        end
+        hold status_info = extract_status_line(lines[0])
+        set result["status_code"] = status_info[0]
+        set result["reason"] = status_info[1]
+        set result["ok"] = status_info[0] >= 200 and status_info[0] < 300
+        hold header_end = 0
+        spin i from 1 to line_count - 2
+            hold cur = lines[i]
+            check cur == "" or cur == "\r"
+                set header_end = i
+                break
+            end
+        end
+        hold hdrs = extract_headers_from_lines(lines, 1, header_end)
+        set result["headers"] = hdrs
+        hold body_lines = []
+        spin i from header_end + 1 to line_count - 2
+            append(body_lines, lines[i])
+        end
+        hold body_text = join("\n", body_lines)
+        set result["body"] = body_text
+        set result["text"] = body_text
+        check has(hdrs, "content-type")
+            hold ct = hdrs["content-type"]
+            hold parsed = parse_content_type(ct)
+            set result["encoding"] = parsed[1]
+        end
+        check has(hdrs, "set-cookie")
+            hold cookie_raw = hdrs["set-cookie"]
+            hold jar = parse_cookies_from_header(cookie_raw)
+            set result["cookies"] = jar
+        end
+    or
+        check line_count == 2
+            hold status_code = int(lines[0])
+            set result["status_code"] = status_code
+            set result["ok"] = status_code >= 200 and status_code < 300
+            set result["body"] = lines[1]
+            set result["text"] = lines[1]
+        or
+            set result["body"] = raw_text
+            set result["text"] = raw_text
+            set result["status_code"] = 0
+            set result["ok"] = false
+            set result["reason"] = "Empty or malformed response"
+        end
+    end
+    give result
+end
+
+craft extract_status_line raw
+    hold trimmed = strip(raw)
+    hold parts = split(trimmed, " ")
+    hold code = 0
+    hold reason = ""
+    check len(parts) >= 2
+        shield
+            set code = int(parts[1])
+        when e
+            set code = 0
+        end
+        hold reason_parts = []
+        spin i from 2 to len(parts)
+            append(reason_parts, parts[i])
+        end
+        set reason = join(" ", reason_parts)
+    or
+        check len(parts) == 1
+            shield
+                set code = int(parts[0])
+            when e
+                set code = 0
+            end
+            set reason = "Unknown"
+        end
+    end
+    give (code, reason)
+end
+
+craft extract_headers raw
+    hold lines = split(raw, "\n")
+    give extract_headers_from_lines(lines, 0, len(lines))
+end
+
+craft extract_headers_from_lines lines start_idx end_idx
+    hold hdrs = vault {}
+    spin i from start_idx to end_idx
+        hold line = lines[i]
+        hold trimmed = strip(line)
+        check len(trimmed) == 0
+            continue
+        end
+        hold colon_pos = find(trimmed, ":")
+        check colon_pos > 0
+            hold key = lower(strip(substr(trimmed, 0, colon_pos)))
+            hold val = strip(substr(trimmed, colon_pos + 1, len(trimmed) - colon_pos - 1))
+            check has(hdrs, key)
+                set hdrs[key] = hdrs[key] + ", " + val
+            or
+                set hdrs[key] = val
+            end
+        end
+    end
+    give hdrs
+end
+
+craft extract_body raw
+    hold lines = split(raw, "\n")
+    hold line_count = len(lines)
+    check line_count <= 2
+        give raw
+    end
+    hold blank_idx = 0
+    spin i from 0 to line_count
+        check i < line_count
+            hold cur = lines[i]
+            check cur == "" or cur == "\r" or strip(cur) == ""
+                set blank_idx = i
+                break
+            end
+        end
+    end
+    hold body_parts = []
+    spin i from blank_idx + 1 to line_count - 2
+        append(body_parts, lines[i])
+    end
+    give join("\n", body_parts)
+end
+
+craft parse_json_body text
+    hold trimmed = strip(text)
+    check len(trimmed) == 0
+        give vault {}
+    end
+    hold first = char_at(trimmed, 0)
+    check first == "{" or first == "["
+        give mnos_unpack(trimmed)
+    or
+        give text
+    end
+end
+
+craft parse_content_type header_val
+    hold lower_val = lower(header_val)
+    hold ctype = "application/octet-stream"
+    hold charset = "utf-8"
+    hold parts = split(lower_val, ";")
+    check len(parts) >= 1
+        set ctype = strip(parts[0])
+    end
+    spin i from 1 to len(parts)
+        hold p = strip(parts[i])
+        check starts_with(p, "charset=")
+            set charset = strip(substr(p, 8, len(p) - 8))
+        end
+    end
+    give (ctype, charset)
+end
+
+craft parse_cookies_from_header header_val
+    hold jar = vault {}
+    hold parts = split(header_val, ";")
+    spin i from 0 to len(parts)
+        hold pair = strip(parts[i])
+        hold eq_pos = find(pair, "=")
+        check eq_pos > 0
+            hold name = strip(substr(pair, 0, eq_pos))
+            hold val = strip(substr(pair, eq_pos + 1, len(pair) - eq_pos - 1))
+            check contains(val, ";") or contains(val, ",")
+                hold clean_end = find(val, ";")
+                check clean_end < 0
+                    set clean_end = find(val, ",")
+                end
+                check clean_end >= 0
+                    set val = strip(substr(val, 0, clean_end))
+                end
+            end
+            set jar[name] = val
+        end
+    end
+    give jar
+end
+
+craft response_json resp
+    give parse_json_body(resp["text"])
+end
+
+craft response_status resp
+    give resp["status_code"]
+end
+
+craft response_ok resp
+    give resp["ok"]
+end
+
+craft response_headers resp
+    give resp["headers"]
+end
+
+craft response_text resp
+    give resp["text"]
+end
+
+craft response_elapsed resp
+    give resp["elapsed"]
+end
+
+craft response_encoding resp
+    give resp["encoding"]
+end
+
+craft response_reason resp
+    give resp["reason"]
+end
+
+craft response_cookies resp
+    give resp["cookies"]
+end
+
+craft response_header resp name
+    hold hdrs = resp["headers"]
+    hold lower_name = lower(name)
+    check has(hdrs, lower_name)
+        give hdrs[lower_name]
+    or
+        give ""
+    end
+end

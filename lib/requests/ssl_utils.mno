@@ -1,0 +1,154 @@
+craft is_https url
+    give starts_with(lower(url), "https://")
+end
+
+craft ssl_verify_host url
+    check not is_https(url)
+        give vault {valid: true, message: "Not an HTTPS URL, no SSL verification needed"}
+    end
+    hold cmd = "curl -sS -o /dev/null -w '%{ssl_verify_result}' '" + url + "' 2>/dev/null"
+    hold result = system(cmd)
+    hold code = 0
+    shield
+        set code = int(strip(result))
+    when e
+        set code = 1
+    end
+    check code == 0
+        give vault {valid: true, message: "SSL certificate is valid", verify_result: 0}
+    or
+        give vault {valid: false, message: "SSL certificate verification failed", verify_result: code}
+    end
+end
+
+craft ssl_get_cert_info url
+    check not is_https(url)
+        give vault {subject: "", issuer: "", expiry: "", protocol: "", cipher: "", error: "Not an HTTPS URL"}
+    end
+    hold host = url
+    check starts_with(host, "https://")
+        set host = substr(host, 8, len(host) - 8)
+    end
+    hold slash_pos = find(host, "/")
+    check slash_pos > 0
+        set host = substr(host, 0, slash_pos)
+    end
+    hold q_pos = find(host, "?")
+    check q_pos > 0
+        set host = substr(host, 0, q_pos)
+    end
+    hold cmd = "echo | openssl s_client -connect " + host + ":443 -servername " + host + " 2>/dev/null | openssl x509 -noout -subject -issuer -dates 2>/dev/null"
+    hold raw = system(cmd)
+    hold lines = split(raw, "\n")
+    hold subject = ""
+    hold issuer = ""
+    hold dates = []
+    spin i from 0 to len(lines)
+        hold line = strip(lines[i])
+        check starts_with(line, "subject=")
+            set subject = substr(line, 8, len(line) - 8)
+        or
+            check starts_with(line, "issuer=")
+                set issuer = substr(line, 7, len(line) - 7)
+            or
+                check starts_with(line, "notBefore=") or starts_with(line, "notAfter=")
+                    append(dates, line)
+                end
+            end
+        end
+    end
+    hold expiry = ""
+    check len(dates) >= 2
+        set expiry = dates[0] + " - " + dates[1]
+    or
+        check len(dates) == 1
+            set expiry = dates[0]
+        end
+    end
+    hold protocol_cmd = "echo | openssl s_client -connect " + host + ":443 -servername " + host + " 2>/dev/null | grep 'Protocol\\|Cipher' | head -2"
+    hold proto_raw = system(protocol_cmd)
+    give vault {subject: subject, issuer: issuer, expiry: expiry, protocol: proto_raw, cipher: "", host: host, error: ""}
+end
+
+craft ssl_create_context
+    give vault {verify_mode: 1, cert_file: "", key_file: "", ca_file: "", ca_path: "", check_hostname: true, protocol: "TLSv1.2", options: vault {no_sslv2: true, no_sslv3: true, no_tlsv1: false, no_tlsv1_1: false}}
+end
+
+craft ssl_context_set_verify ctx mode
+    set ctx["verify_mode"] = mode
+    give ctx
+end
+
+craft ssl_context_set_cert ctx cert_path key_path
+    set ctx["cert_file"] = cert_path
+    set ctx["key_file"] = key_path
+    give ctx
+end
+
+craft ssl_context_set_ca ctx ca_path
+    set ctx["ca_file"] = ca_path
+    give ctx
+end
+
+craft ssl_context_disable_hostname ctx
+    set ctx["check_hostname"] = false
+    give ctx
+end
+
+craft ssl_context_set_protocol ctx protocol
+    hold valid_protos = ["TLSv1.2", "TLSv1.3", "TLSv1"]
+    hold found = false
+    spin i from 0 to len(valid_protos)
+        check valid_protos[i] == protocol
+            set found = true
+            break
+        end
+    end
+    check found
+        set ctx["protocol"] = protocol
+    end
+    give ctx
+end
+
+craft ssl_check_expired url
+    check not is_https(url)
+        give vault {expired: false, message: "Not HTTPS"}
+    end
+    hold host = url
+    check starts_with(host, "https://")
+        set host = substr(host, 8, len(host) - 8)
+    end
+    hold slash_pos = find(host, "/")
+    check slash_pos > 0
+        set host = substr(host, 0, slash_pos)
+    end
+    hold cmd = "echo | openssl s_client -connect " + host + ":443 -servername " + host + " 2>/dev/null | openssl x509 -noout -checkend 0 2>/dev/null"
+    hold result = system(cmd)
+    hold trimmed = strip(result)
+    check trimmed == "Certificate will not expire"
+        give vault {expired: false, message: "Certificate is valid"}
+    or
+        give vault {expired: true, message: "Certificate has expired"}
+    end
+end
+
+craft ssl_to_curl_flags ctx
+    hold flags = ""
+    check ctx["verify_mode"] == 0
+        set flags = flags + " -k"
+    or
+        check ctx["ca_file"] != ""
+            set flags = flags + " --cacert '" + ctx["ca_file"] + "'"
+        end
+    end
+    check ctx["cert_file"] != ""
+        set flags = flags + " --cert '" + ctx["cert_file"] + "'"
+    end
+    check ctx["key_file"] != ""
+        set flags = flags + " --key '" + ctx["key_file"] + "'"
+    end
+    check not ctx["check_hostname"]
+        set flags = flags + " -k"
+    end
+    give flags
+end

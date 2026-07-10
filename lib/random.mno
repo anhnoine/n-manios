@@ -1,0 +1,72 @@
+craft choice lst
+    give lst[rand_int(0, len(lst) - 1)]
+end
+
+craft shuffle lst
+    hold r = val_copy(lst)
+    spin i from len(r) - 1 to 0 step -1
+        hold j = rand_int(0, i)
+        hold t = r[i]
+        set r[i] = r[j]
+        set r[j] = t
+    end
+    give r
+end
+
+craft rand_color
+    hold r = rand_int(0, 255)
+    hold g = rand_int(0, 255)
+    hold b = rand_int(0, 255)
+    give "#" + str(r) + str(g) + str(b)
+end
+
+craft rand_string len
+    hold chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+    hold r = ""
+    spin i from 0 to len
+        set r = r + char_at(chars, rand_int(0, len(chars) - 1))
+    end
+    give r
+end
+
+craft dice sides
+    check sides < 1
+        give rand_int(1, 6)
+    or
+        give rand_int(1, sides)
+    end
+end
+
+craft weighted_pick items weights
+    hold total = 0
+    spin i from 0 to len(weights)
+        set total = total + weights[i]
+    end
+    hold r = rand_float() * total
+    hold acc = 0.0
+    spin i from 0 to len(items)
+        set acc = acc + weights[i]
+        check r <= acc
+            give items[i]
+        end
+    end
+    give items[len(items) - 1]
+end
+
+craft sample lst n
+    hold r = val_copy(lst)
+    check n > len(r)
+        set n = len(r)
+    end
+    spin i from 0 to n
+        hold j = rand_int(i, len(r) - 1)
+        hold t = r[i]
+        set r[i] = r[j]
+        set r[j] = t
+    end
+    hold result = []
+    spin i from 0 to n
+        push r[i] into result
+    end
+    give result
+end

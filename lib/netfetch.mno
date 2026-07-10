@@ -1,0 +1,40 @@
+craft get url
+    hold cmd = "curl -sL '" + url + "' 2>/dev/null"
+    give system(cmd)
+end
+
+craft post url data
+    hold escaped = replace(data, "'", "'\\''")
+    hold cmd = "curl -sL -X POST -d '" + escaped + "' '" + url + "' 2>/dev/null"
+    give system(cmd)
+end
+
+craft download url path
+    hold cmd = "curl -sL '" + url + "' -o '" + path + "' 2>/dev/null"
+    system(cmd)
+    give file_exists(path)
+end
+
+craft head url
+    hold cmd = "curl -sI '" + url + "' 2>/dev/null | head -20"
+    give system(cmd)
+end
+
+craft get_json url
+    hold raw = get(url)
+    give raw
+end
+
+craft request method url headers body
+    hold cmd = "curl -sL -X " + method + " '" + url + "'"
+    check len(headers) > 0
+        spin i from 0 to len(headers)
+            set cmd = cmd + " -H '" + headers[i] + "'"
+        end
+    end
+    check body != ""
+        set cmd = cmd + " -d '" + body + "'"
+    end
+    set cmd = cmd + " 2>/dev/null"
+    give system(cmd)
+end

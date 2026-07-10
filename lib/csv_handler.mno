@@ -1,0 +1,222 @@
+craft csv_parse_field text pos delim
+    check pos >= len(text)
+        give ["", pos]
+    end
+    check char_at(text, pos) == "\""
+        set pos = pos + 1
+        hold field = ""
+        spin while pos < len(text)
+            hold c = char_at(text, pos)
+            check c == "\""
+                check pos + 1 < len(text) and char_at(text, pos + 1) == "\""
+                    set field = field + "\""
+                    set pos = pos + 2
+                or
+                    set pos = pos + 1
+                    give [field, pos]
+                end
+            or
+                set field = field + c
+                set pos = pos + 1
+            end
+        end
+        give [field, pos]
+    or
+        hold end_pos = find(substr(text, pos, len(text) - pos), delim)
+        check end_pos < 0
+            give [substr(text, pos, len(text) - pos), len(text)]
+        or
+            give [substr(text, pos, end_pos), pos + end_pos + len(delim)]
+        end
+    end
+end
+
+craft csv_parse_row text pos delim
+    hold row = []
+    spin while pos < len(text)
+        hold result = csv_parse_field(text, pos, delim)
+        hold field = result[0]
+        set pos = result[1]
+        push field into row
+        check pos >= len(text)
+            give [row, pos]
+        end
+        hold c = char_at(text, pos)
+        check c == "\n" or c == "\r"
+            check c == "\r" and pos + 1 < len(text) and char_at(text, pos + 1) == "\n"
+                set pos = pos + 2
+            or
+                set pos = pos + 1
+            end
+            give [row, pos]
+        end
+    end
+    give [row, pos]
+end
+
+craft csv_parse text delim
+    hold rows = []
+    hold pos = 0
+    spin while pos < len(text)
+        hold result = csv_parse_row(text, pos, delim)
+        hold row = result[0]
+        set pos = result[1]
+        check len(row) > 0 or pos < len(text)
+            push row into rows
+        end
+        check pos >= len(text)
+            give rows
+        end
+    end
+    give rows
+end
+
+craft csv_parse_file path delim
+    hold content = read_file(path)
+    give csv_parse(content, delim)
+end
+
+craft csv_escape_field field delim
+    check contains(field, delim) or contains(field, "\"") or contains(field, "\n") or contains(field, "\r")
+        hold escaped = replace(field, "\"", "\"\"")
+        give "\"" + escaped + "\""
+    or
+        give field
+    end
+end
+
+craft csv_to_string rows delim
+    hold lines = []
+    spin i from 0 to len(rows)
+        hold row = rows[i]
+        hold fields = []
+        spin j from 0 to len(row)
+            push csv_escape_field(str(row[j]), delim) into fields
+        end
+        push join(fields, delim) into lines
+    end
+    give join(lines, "\n")
+end
+
+craft csv_write_file rows path delim
+    hold content = csv_to_string(rows, delim)
+    write_file(path, content)
+    give file_exists(path)
+end
+
+craft csv_get_column rows col_idx
+    hold col = []
+    spin i from 0 to len(rows)
+        hold row = rows[i]
+        check col_idx < len(row)
+            push row[col_idx] into col
+        or
+            push "" into col
+        end
+    end
+    give col
+end
+
+craft csv_set_column rows col_idx values
+    hold result = []
+    spin i from 0 to len(rows)
+        hold row = []
+        spin j from 0 to len(rows[i])
+            check j == col_idx and i < len(values)
+                push values[i] into row
+            or
+                push rows[i][j] into row
+            end
+        end
+        check col_idx >= len(rows[i]) and i < len(values)
+            push values[i] into row
+        end
+        push row into result
+    end
+    give result
+end
+
+craft csv_add_row rows row
+    hold new_rows = []
+    spin i from 0 to len(rows)
+        hold r = []
+        spin j from 0 to len(rows[i])
+            push rows[i][j] into r
+        end
+        push r into new_rows
+    end
+    push row into new_rows
+    give new_rows
+end
+
+craft csv_filter rows col_idx value
+    hold result = []
+    spin i from 0 to len(rows)
+        check col_idx < len(rows[i])
+            check rows[i][col_idx] == value
+                hold r = []
+                spin j from 0 to len(rows[i])
+                    push rows[i][j] into r
+                end
+                push r into result
+            end
+        end
+    end
+    give result
+end
+
+craft csv_sort_by rows col_idx
+    hold indexed = []
+    spin i from 0 to len(rows)
+        hold entry = [rows[i], col_idx]
+        push entry into indexed
+    end
+    hold sorted_indexed = sort(indexed)
+    hold result = []
+    spin i from 0 to len(sorted_indexed)
+        push sorted_indexed[i][0] into result
+    end
+    give result
+end
+
+craft csv_to_dict rows key_col
+    hold d = vault {}
+    spin i from 1 to len(rows)
+        hold row = rows[i]
+        check key_col < len(row)
+            hold key = str(row[key_col])
+            hold vals = []
+            spin j from 0 to len(row)
+                check j != key_col
+                    push row[j] into vals
+                end
+            end
+            dict_set(d, key, vals)
+        end
+    end
+    give d
+end
+
+craft csv_from_dict data_dict headers
+    hold rows = []
+    push headers into rows
+    hold keys = dict_keys(data_dict)
+    spin i from 0 to len(keys)
+        hold key = keys[i]
+        hold vals = dict_get(data_dict, key)
+        hold row = [key]
+        spin j from 0 to len(vals)
+            push vals[j] into row
+        end
+        push row into rows
+    end
+    give rows
+end
+
+craft tsv_parse text
+    give csv_parse(text, "\t")
+end
+
+craft tsv_parse_file path
+    give csv_parse_file(path, "\t")
+end

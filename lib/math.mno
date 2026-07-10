@@ -1,0 +1,103 @@
+craft deg_to_rad deg
+    give deg * pi() / 180.0
+end
+
+craft rad_to_deg rad
+    give rad * 180.0 / pi()
+end
+
+craft clamp val lo hi
+    check val < lo
+        give lo
+    or
+        check val > hi
+            give hi
+        or
+            give val
+        end
+    end
+end
+
+craft lerp a b t
+    give a + (b - a) * t
+end
+
+craft map_range val a1 b1 a2 b2
+    give a2 + (val - a1) * (b2 - a2) / (b1 - a1)
+end
+
+craft factorial n
+    check n <= 1
+        give 1
+    or
+        give n * factorial(n - 1)
+    end
+end
+
+craft fibonacci n
+    check n <= 0
+        give 0
+    or
+        check n == 1
+            give 1
+        or
+            give fibonacci(n - 1) + fibonacci(n - 2)
+        end
+    end
+end
+
+craft gcd a b
+    check b == 0
+        give a
+    or
+        give gcd(b, a - (a / b) * b)
+    end
+end
+
+craft lcm a b
+    give (a / gcd(a, b)) * b
+end
+
+craft sum_list lst
+    hold total = 0
+    spin i from 0 to len(lst)
+        set total = total + lst[i]
+    end
+    give total
+end
+
+craft avg_list lst
+    check len(lst) == 0
+        give 0.0
+    or
+        give sum_list(lst) / len(lst)
+    end
+end
+
+craft max_list lst
+    check len(lst) == 0
+        give 0
+    or
+        hold m = lst[0]
+        spin i from 1 to len(lst)
+            check lst[i] > m
+                set m = lst[i]
+            end
+        end
+        give m
+    end
+end
+
+craft min_list lst
+    check len(lst) == 0
+        give 0
+    or
+        hold m = lst[0]
+        spin i from 1 to len(lst)
+            check lst[i] < m
+                set m = lst[i]
+            end
+        end
+        give m
+    end
+end

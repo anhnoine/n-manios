@@ -1,0 +1,393 @@
+craft iter_chain list1 list2
+    hold result = []
+    spin i from 0 to len(list1)
+        push list1[i] into result
+    end
+    spin i from 0 to len(list2)
+        push list2[i] into result
+    end
+    give result
+end
+
+craft iter_chain3 list1 list2 list3
+    hold result = []
+    spin i from 0 to len(list1)
+        push list1[i] into result
+    end
+    spin i from 0 to len(list2)
+        push list2[i] into result
+    end
+    spin i from 0 to len(list3)
+        push list3[i] into result
+    end
+    give result
+end
+
+craft iter_cycle items n
+    hold result = []
+    check len(items) == 0
+        give result
+    end
+    spin round from 0 to n
+        spin i from 0 to len(items)
+            push items[i] into result
+        end
+    end
+    give result
+end
+
+craft iter_repeat item n
+    hold result = []
+    spin i from 0 to n
+        push item into result
+    end
+    give result
+end
+
+craft iter_product list1 list2
+    hold result = []
+    spin i from 0 to len(list1)
+        spin j from 0 to len(list2)
+            hold pair = [list1[i], list2[j]]
+            push pair into result
+        end
+    end
+    give result
+end
+
+craft _swap_helper lst i j
+    hold tmp = lst[i]
+    set lst[i] = lst[j]
+    set lst[j] = tmp
+end
+
+craft _permute_helper items start result
+    hold n = len(items)
+    check start == n
+        hold copy = []
+        spin i from 0 to n
+            push items[i] into copy
+        end
+        push copy into result
+        give val_none()
+    end
+    spin i from start to n
+        _swap_helper(items, start, i)
+        _permute_helper(items, start + 1, result)
+        _swap_helper(items, start, i)
+    end
+end
+
+craft iter_permutations items r
+    check r <= 0
+        give []
+    end
+    check r > len(items)
+        set r = len(items)
+    end
+    hold working = []
+    spin i from 0 to len(items)
+        push items[i] into working
+    end
+    hold result = []
+    _permute_helper(working, 0, result)
+    hold filtered = []
+    spin i from 0 to len(result)
+        hold perm = result[i]
+        hold sliced = []
+        spin j from 0 to r
+            push perm[j] into sliced
+        end
+        push sliced into filtered
+    end
+    give filtered
+end
+
+craft _comb_helper items start r current result
+    hold n = len(items)
+    check r == 0
+        hold copy = []
+        spin i from 0 to len(current)
+            push current[i] into copy
+        end
+        push copy into result
+        give val_none()
+    end
+    check start > n - r
+        give val_none()
+    end
+    hold new_current = []
+    spin i from 0 to len(current)
+        push current[i] into new_current
+    end
+    push items[start] into new_current
+    _comb_helper(items, start + 1, r - 1, new_current, result)
+    _comb_helper(items, start + 1, r, current, result)
+end
+
+craft iter_combinations items r
+    hold result = []
+    _comb_helper(items, 0, r, [], result)
+    give result
+end
+
+craft iter_accumulate items op_name
+    check len(items) == 0
+        give []
+    end
+    hold result = [items[0]]
+    spin i from 1 to len(items)
+        hold prev = result[len(result) - 1]
+        check op_name == "add"
+            push prev + items[i] into result
+        or
+            check op_name == "mul"
+                push prev * items[i] into result
+            or
+                check op_name == "max"
+                    push max(prev, items[i]) into result
+                or
+                    check op_name == "min"
+                        push min(prev, items[i]) into result
+                    or
+                        push prev + items[i] into result
+                    end
+                end
+            end
+        end
+    end
+    give result
+end
+
+craft iter_groupby_sorted items
+    check len(items) == 0
+        give vault {}
+    end
+    hold sorted_items = sort(items)
+    hold groups = vault {}
+    hold current_key = str(sorted_items[0])
+    hold current_group = [sorted_items[0]]
+    spin i from 1 to len(sorted_items)
+        hold k = str(sorted_items[i])
+        check k == current_key
+            push sorted_items[i] into current_group
+        or
+            dict_set(groups, current_key, current_group)
+            set current_key = k
+            set current_group = [sorted_items[i]]
+        end
+    end
+    dict_set(groups, current_key, current_group)
+    give groups
+end
+
+craft iter_zip_longest list1 list2 fill
+    hold result = []
+    hold maxlen = len(list1)
+    check len(list2) > maxlen
+        set maxlen = len(list2)
+    end
+    spin i from 0 to maxlen
+        hold v1 = fill
+        hold v2 = fill
+        check i < len(list1)
+            set v1 = list1[i]
+        end
+        check i < len(list2)
+            set v2 = list2[i]
+        end
+        hold pair = [v1, v2]
+        push pair into result
+    end
+    give result
+end
+
+craft iter_takewhile pred_name items
+    hold result = []
+    spin i from 0 to len(items)
+        hold v = items[i]
+        check pred_name == "is_positive"
+            check v > 0
+                push v into result
+            or
+                give result
+            end
+        or
+            check pred_name == "is_even"
+                check v % 2 == 0
+                    push v into result
+                or
+                    give result
+                end
+            or
+                check pred_name == "is_alpha"
+                    check isalpha(str(v))
+                        push v into result
+                    or
+                        give result
+                    end
+                or
+                    check v != 0 and v != "" and v != false
+                        push v into result
+                    or
+                        give result
+                    end
+                end
+            end
+        end
+    end
+    give result
+end
+
+craft iter_dropwhile pred_name items
+    hold dropping = true
+    hold result = []
+    spin i from 0 to len(items)
+        hold v = items[i]
+        check dropping
+            check pred_name == "is_positive"
+                check v <= 0
+                    set dropping = false
+                    push v into result
+                end
+            or
+                check pred_name == "is_even"
+                    check v % 2 != 0
+                        set dropping = false
+                        push v into result
+                    end
+                or
+                    check v == 0 or v == "" or v == false
+                        set dropping = false
+                        push v into result
+                    end
+                end
+            end
+        or
+            push v into result
+        end
+    end
+    give result
+end
+
+craft iter_filterfalse pred_name items
+    hold result = []
+    spin i from 0 to len(items)
+        hold v = items[i]
+        check pred_name == "is_positive"
+            check not (v > 0)
+                push v into result
+            end
+        or
+            check pred_name == "is_even"
+                check not (v % 2 == 0)
+                    push v into result
+                end
+            or
+                check not (v != 0 and v != "" and v != false)
+                    push v into result
+                end
+            end
+        end
+    end
+    give result
+end
+
+craft iter_islice items start end step_val
+    hold result = []
+    hold i = start
+    spin while i < end
+        check i < len(items)
+            push items[i] into result
+        end
+        set i = i + step_val
+    end
+    give result
+end
+
+craft iter_count start step_val
+    hold result = []
+    hold i = 0
+    hold val = start
+    spin while i < 10000
+        push val into result
+        set val = val + step_val
+        set i = i + 1
+    end
+    give result
+end
+
+craft iter_flatten list_of_lists
+    hold result = []
+    spin i from 0 to len(list_of_lists)
+        check type(list_of_lists[i]) == "list"
+            spin j from 0 to len(list_of_lists[i])
+                push list_of_lists[i][j] into result
+            end
+        or
+            push list_of_lists[i] into result
+        end
+    end
+    give result
+end
+
+craft iter_chunk items size
+    hold result = []
+    hold i = 0
+    spin while i < len(items)
+        hold chunk = []
+        hold j = 0
+        spin while j < size and i + j < len(items)
+            push items[i + j] into chunk
+            set j = j + 1
+        end
+        push chunk into result
+        set i = i + size
+    end
+    give result
+end
+
+craft iter_window items size
+    hold result = []
+    check size > len(items)
+        give result
+    end
+    spin i from 0 to len(items) - size + 1
+        hold win = []
+        spin j from 0 to size
+            push items[i + j] into win
+        end
+        push win into result
+    end
+    give result
+end
+
+craft iter_unique items
+    hold seen = vault {}
+    hold result = []
+    spin i from 0 to len(items)
+        hold k = str(items[i])
+        check not dict_has(seen, k)
+            dict_set(seen, k, true)
+            push items[i] into result
+        end
+    end
+    give result
+end
+
+craft iter_interleave list1 list2
+    hold result = []
+    hold maxlen = len(list1)
+    check len(list2) > maxlen
+        set maxlen = len(list2)
+    end
+    spin i from 0 to maxlen
+        check i < len(list1)
+            push list1[i] into result
+        end
+        check i < len(list2)
+            push list2[i] into result
+        end
+    end
+    give result
+end

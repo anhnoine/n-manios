@@ -1,0 +1,247 @@
+pipe "requests/request_builder"
+pipe "requests/response_parser"
+pipe "requests/session_core"
+pipe "requests/auth_handlers"
+pipe "requests/cookies_handler"
+pipe "requests/ssl_utils"
+pipe "requests/adapters"
+
+craft fetch url
+    give fetch_with_opts(url, vault {})
+end
+
+craft fetch_with_opts url opts
+    hold method = "GET"
+    check has(opts, "method")
+        set method = str(opts["method"])
+    end
+    hold data = ""
+    check has(opts, "data")
+        set data = str(opts["data"])
+    or
+        check has(opts, "body")
+            set data = str(opts["body"])
+        end
+    end
+    hold params = vault {}
+    check has(opts, "params")
+        set params = opts["params"]
+    end
+    hold heads = vault {}
+    check has(opts, "headers")
+        set heads = opts["headers"]
+    end
+    hold timeout_val = 30.0
+    check has(opts, "timeout")
+        set timeout_val = float(opts["timeout"])
+    end
+    hold auth_info = vault {scheme: ""}
+    check has(opts, "auth")
+        set auth_info = opts["auth"]
+    end
+    hold verify_ssl = true
+    check has(opts, "verify")
+        set verify_ssl = opts["verify"]
+    end
+    hold allow_redirect = true
+    check has(opts, "redirect")
+        set allow_redirect = opts["redirect"]
+    end
+    hold proxy_url = ""
+    check has(opts, "proxy")
+        set proxy_url = str(opts["proxy"])
+    end
+    hold accept_type = ""
+    check has(opts, "accept")
+        set accept_type = str(opts["accept"])
+    end
+    hold content_type = ""
+    check has(opts, "content_type")
+        set content_type = str(opts["content_type"])
+    or
+        check has(opts, "content-type")
+            set content_type = str(opts["content-type"])
+        end
+    end
+    hold max_retries = 0
+    check has(opts, "retries")
+        set max_retries = int(opts["retries"])
+    end
+    hold req = build_request(method, url)
+    hold pkeys = dkeys(params)
+    check len(pkeys) > 0
+        hold encoded = encode_params(params)
+        hold cur_url = req["destination"]
+        check contains(cur_url, "?")
+            set req["destination"] = cur_url + "&" + encoded
+        or
+            set req["destination"] = cur_url + "?" + encoded
+        end
+    end
+    hold hkeys = dkeys(heads)
+    spin i from 0 to len(hkeys)
+        set req = set_header(req, hkeys[i], heads[hkeys[i]])
+    end
+    check content_type != ""
+        set req = req_content_type(req, content_type)
+    end
+    check accept_type != ""
+        set req = req_accept(req, accept_type)
+    end
+    check not has(req["heads"], "user-agent")
+        set req = req_user_agent(req, "ManiosRequests/1.0")
+    end
+    check data != ""
+        set req = set_body(req, data)
+    end
+    set req = set_timeout(req, timeout_val)
+    set req = set_verify(req, verify_ssl)
+    set req = set_redirect(req, allow_redirect)
+    check proxy_url != ""
+        set req = set_proxy(req, proxy_url)
+    end
+    check has(auth_info, "scheme") and auth_info["scheme"] != ""
+        set req = apply_auth(req, auth_info)
+    end
+    hold adapter = https_adapter()
+    check max_retries > 0
+        set adapter = retry_adapter(adapter, max_retries)
+    end
+    hold resp = adapter_execute(adapter, req)
+    give resp
+end
+
+craft grab url
+    hold resp = fetch(url)
+    give resp["text"]
+end
+
+craft grab_json url
+    hold resp = fetch(url)
+    give parse_json_body(resp["text"])
+end
+
+craft grab_headers url
+    hold resp = fetch(url)
+    give resp["headers"]
+end
+
+craft transmit url data
+    hold resp = fetch_with_opts(url, vault {method: "POST", data: str(data)})
+    give resp
+end
+
+craft transmit_json url data
+    hold json_str = mnos_pack(data)
+    hold resp = fetch_with_opts(url, vault {method: "POST", data: json_str, content_type: "application/json"})
+    give resp
+end
+
+craft transmit_form url fields
+    hold resp = fetch_with_opts(url, vault {method: "POST", data: fields, content_type: "application/x-www-form-urlencoded"})
+    give resp
+end
+
+craft connect
+    give create_session()
+end
+
+craft stream_fetch url
+    hold req = build_request("GET", url)
+    set req = req_user_agent(req, "ManiosRequests/1.0")
+    set req["stream"] = true
+    hold cmd = build_curl_cmd(req)
+    hold raw = system(cmd)
+    give parse_response(raw)
+end
+
+craft head_only url
+    hold resp = fetch_with_opts(url, vault {method: "HEAD"})
+    give resp
+end
+
+craft options_probe url
+    hold resp = fetch_with_opts(url, vault {method: "OPTIONS"})
+    give resp
+end
+
+craft put_data url data
+    hold resp = fetch_with_opts(url, vault {method: "PUT", data: str(data)})
+    give resp
+end
+
+craft patch_data url data
+    hold resp = fetch_with_opts(url, vault {method: "PATCH", data: str(data)})
+    give resp
+end
+
+craft remove_url url
+    hold resp = fetch_with_opts(url, vault {method: "DELETE"})
+    give resp
+end
+
+craft download_file url save_path
+    hold safe_url = replace(url, "'", "'\\''")
+    hold cmd = "curl -sS -L -o '" + save_path + "' '" + safe_url + "' 2>/dev/null"
+    system(cmd)
+    give file_exists(save_path)
+end
+
+craft status_check url
+    hold cmd = "curl -sS -o /dev/null -w '%{http_code}' '" + url + "' 2>/dev/null"
+    hold raw = system(cmd)
+    hold code = 0
+    shield
+        set code = int(strip(raw))
+    when e
+        set code = 0
+    end
+    give code
+end
+
+craft ping_url url
+    hold cmd = "curl -sS -o /dev/null -w '%{http_code}\\n%{time_total}\\n%{time_connect}\\n%{time_starttransfer}' '" + url + "' 2>/dev/null"
+    hold raw = system(cmd)
+    hold lines = split(raw, "\n")
+    hold result = vault {code: 0, total_time: 0.0, connect_time: 0.0, transfer_time: 0.0, reachable: false}
+    check len(lines) >= 4
+        shield
+            set result["code"] = int(strip(lines[0]))
+        when e
+        end
+        shield
+            set result["total_time"] = float(strip(lines[1]))
+        when e
+        end
+        shield
+            set result["connect_time"] = float(strip(lines[2]))
+        when e
+        end
+        shield
+            set result["transfer_time"] = float(strip(lines[3]))
+        when e
+        end
+    end
+    check result["code"] > 0
+        set result["reachable"] = true
+    end
+    give result
+end
+
+craft multi_fetch urls
+    hold results = []
+    spin i from 0 to len(urls)
+        hold resp = fetch(urls[i])
+        append(results, resp)
+    end
+    give results
+end
+
+craft multi_grab urls
+    hold results = []
+    spin i from 0 to len(urls)
+        hold text = grab(urls[i])
+        append(results, text)
+    end
+    give results
+end

@@ -1,0 +1,188 @@
+craft partial fn_name arg1 arg2
+    hold p = vault {}
+    dict_set(p, "fn", fn_name)
+    dict_set(p, "args", [arg1, arg2])
+    dict_set(p, "type", "partial")
+    give p
+end
+
+craft partial1 fn_name arg1
+    hold p = vault {}
+    dict_set(p, "fn", fn_name)
+    dict_set(p, "args", [arg1])
+    dict_set(p, "type", "partial")
+    give p
+end
+
+craft partial_apply p extra_arg
+    hold fn_name = dict_get(p, "fn")
+    hold base_args = dict_get(p, "args")
+    hold all_args = []
+    spin i from 0 to len(base_args)
+        push base_args[i] into all_args
+    end
+    push extra_arg into all_args
+    hold result = vault {}
+    dict_set(result, "fn", fn_name)
+    dict_set(result, "args", all_args)
+    dict_set(result, "type", "partial")
+    give result
+end
+
+craft reduce_op fn_name items initial
+    hold acc = initial
+    spin i from 0 to len(items)
+        check fn_name == "add"
+            set acc = acc + items[i]
+        or
+            check fn_name == "mul"
+                set acc = acc * items[i]
+            or
+                check fn_name == "sub"
+                    set acc = acc - items[i]
+                or
+                    check fn_name == "max"
+                        set acc = max(acc, items[i])
+                    or
+                        check fn_name == "min"
+                            set acc = min(acc, items[i])
+                        or
+                            set acc = acc + items[i]
+                        end
+                    end
+                end
+            end
+        end
+    end
+    give acc
+end
+
+craft memoize fn_name
+    hold cache = vault {}
+    dict_set(cache, "fn", fn_name)
+    dict_set(cache, "store", vault {})
+    dict_set(cache, "hits", 0)
+    dict_set(cache, "misses", 0)
+    give cache
+end
+
+craft cache_get cache args_str
+    hold store = dict_get(cache, "store")
+    check dict_has(store, args_str)
+        dict_set(cache, "hits", dict_get(cache, "hits") + 1)
+        give dict_get(store, args_str)
+    or
+        dict_set(cache, "misses", dict_get(cache, "misses") + 1)
+        give val_none()
+    end
+end
+
+craft cache_set cache args_str value
+    hold store = dict_get(cache, "store")
+    dict_set(store, args_str, value)
+    dict_set(cache, "store", store)
+    give val_none()
+end
+
+craft cache_info cache
+    hold info = vault {}
+    dict_set(info, "fn", dict_get(cache, "fn"))
+    dict_set(info, "hits", dict_get(cache, "hits"))
+    dict_set(info, "misses", dict_get(cache, "misses"))
+    dict_set(info, "size", dict_len(dict_get(cache, "store")))
+    give info
+end
+
+craft cache_clear cache
+    dict_set(cache, "store", vault {})
+    dict_set(cache, "hits", 0)
+    dict_set(cache, "misses", 0)
+    give val_none()
+end
+
+craft lru_cache fn_name max_size
+    hold cache = vault {}
+    dict_set(cache, "fn", fn_name)
+    dict_set(cache, "store", vault {})
+    dict_set(cache, "order", [])
+    dict_set(cache, "max_size", max_size)
+    dict_set(cache, "hits", 0)
+    dict_set(cache, "misses", 0)
+    give cache
+end
+
+craft lru_get cache args_str
+    hold store = dict_get(cache, "store")
+    check dict_has(store, args_str)
+        dict_set(cache, "hits", dict_get(cache, "hits") + 1)
+        hold order = dict_get(cache, "order")
+        hold new_order = []
+        spin i from 0 to len(order)
+            check order[i] != args_str
+                push order[i] into new_order
+            end
+        end
+        push args_str into new_order
+        dict_set(cache, "order", new_order)
+        give dict_get(store, args_str)
+    or
+        dict_set(cache, "misses", dict_get(cache, "misses") + 1)
+        give val_none()
+    end
+end
+
+craft lru_set cache args_str value
+    hold store = dict_get(cache, "store")
+    hold order = dict_get(cache, "order")
+    hold max_sz = dict_get(cache, "max_size")
+    hold new_order = []
+    spin i from 0 to len(order)
+        check order[i] != args_str
+            push order[i] into new_order
+        end
+    end
+    push args_str into new_order
+    check len(new_order) > max_sz
+        hold evict_key = new_order[0]
+        hold trimmed = []
+        spin i from 1 to len(new_order)
+            push new_order[i] into trimmed
+        end
+        set new_order = trimmed
+        dict_remove(store, evict_key)
+    end
+    dict_set(store, args_str, value)
+    dict_set(cache, "store", store)
+    dict_set(cache, "order", new_order)
+    give val_none()
+end
+
+craft compose fn1_name fn2_name
+    hold c = vault {}
+    dict_set(c, "fn1", fn1_name)
+    dict_set(c, "fn2", fn2_name)
+    dict_set(c, "type", "composed")
+    give c
+end
+
+craft flip fn_name
+    hold f = vault {}
+    dict_set(f, "fn", fn_name)
+    dict_set(f, "type", "flipped")
+    give f
+end
+
+craft identity x
+    give x
+end
+
+craft constant val
+    hold c = vault {}
+    dict_set(c, "value", val)
+    dict_set(c, "type", "constant")
+    give c
+end
+
+craft const_apply c ignored
+    give dict_get(c, "value")
+end

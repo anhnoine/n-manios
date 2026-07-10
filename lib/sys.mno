@@ -1,0 +1,61 @@
+craft platform
+    hold p = lower(env_get("OS"))
+    check contains(p, "linux") or contains(p, "android")
+        give "linux"
+    or
+        check contains(p, "darwin") or contains(p, "mac")
+            give "macos"
+        or
+            give "unknown"
+        end
+    end
+end
+
+craft sys_platform
+    give platform()
+end
+
+craft sys_argv
+    give args()
+end
+
+craft sys_exit code
+    exit(code)
+end
+
+craft sys_path_sep
+    give "/"
+end
+
+craft sys_line_sep
+    give "\n"
+end
+
+craft sys_name
+    give "manios"
+end
+
+craft sys_version_str
+    give "1.0.0"
+end
+
+craft sys_getenv name
+    give env_get(name)
+end
+
+craft sys_setenv name value
+    set_env(name, value)
+    give val_none()
+end
+
+craft sys_exec cmd
+    give system(cmd)
+end
+
+craft sys_cwd
+    give current_dir()
+end
+
+craft sys_chdir path
+    give change_dir(path)
+end

@@ -1,0 +1,87 @@
+craft hash_md5 text
+    hold safe = replace(text, "'", "'\\''")
+    hold cmd = "printf '%s' '" + safe + "' | md5sum 2>/dev/null | awk '{print $1}'"
+    give strip(system(cmd))
+end
+
+craft hash_sha1 text
+    hold safe = replace(text, "'", "'\\''")
+    hold cmd = "printf '%s' '" + safe + "' | sha1sum 2>/dev/null | awk '{print $1}'"
+    give strip(system(cmd))
+end
+
+craft hash_sha256 text
+    hold safe = replace(text, "'", "'\\''")
+    hold cmd = "printf '%s' '" + safe + "' | sha256sum 2>/dev/null | awk '{print $1}'"
+    give strip(system(cmd))
+end
+
+craft hash_sha512 text
+    hold safe = replace(text, "'", "'\\''")
+    hold cmd = "printf '%s' '" + safe + "' | sha512sum 2>/dev/null | awk '{print $1}'"
+    give strip(system(cmd))
+end
+
+craft hash_md5_file path
+    hold cmd = "md5sum '" + replace(path, "'", "'\\''") + "' 2>/dev/null | awk '{print $1}'"
+    give strip(system(cmd))
+end
+
+craft hash_sha256_file path
+    hold cmd = "sha256sum '" + replace(path, "'", "'\\''") + "' 2>/dev/null | awk '{print $1}'"
+    give strip(system(cmd))
+end
+
+craft hash_blake2b text
+    hold safe = replace(text, "'", "'\\''")
+    hold cmd = "printf '%s' '" + safe + "' | openssl blake2b512 2>/dev/null | awk '{print $NF}'"
+    give strip(system(cmd))
+end
+
+craft hash_hmac_sha256 key message
+    hold safe_key = replace(key, "'", "'\\''")
+    hold safe_msg = replace(message, "'", "'\\''")
+    hold tmp_key = "/tmp/mnos_hk_" + str(int(time_now())) + ".bin"
+    hold tmp_msg = "/tmp/mnos_hm_" + str(int(time_now())) + ".bin"
+    write_file(tmp_key, key)
+    write_file(tmp_msg, message)
+    hold cmd = "openssl dgst -sha256 -hmac '" + safe_key + "' '" + tmp_msg + "' 2>/dev/null | awk -F= '{print $NF}'"
+    hold result = strip(system(cmd))
+    delete_file(tmp_key)
+    delete_file(tmp_msg)
+    give result
+end
+
+craft hash_crc32 text
+    hold safe = replace(text, "'", "'\\''")
+    hold cmd = "printf '%s' '" + safe + "' | python3 -c 'import sys,zlib;print(zlib.crc32(sys.stdin.buffer.read()) & 0xffffffff)' 2>/dev/null"
+    hold out = strip(system(cmd))
+    check len(out) > 0 and isdigit(out)
+        give int(out)
+    or
+        give 0
+    end
+end
+
+craft hash_adler32 text
+    hold safe = replace(text, "'", "'\\''")
+    hold cmd = "printf '%s' '" + safe + "' | python3 -c 'import sys,zlib;print(zlib.adler32(sys.stdin.buffer.read()) & 0xffffffff)' 2>/dev/null"
+    hold out = strip(system(cmd))
+    check len(out) > 0 and isdigit(out)
+        give int(out)
+    or
+        give 0
+    end
+end
+
+craft hash_fnv1a text
+    hold FNV_PRIME = 16777619
+    hold FNV_OFFSET = 2166136261
+    hold h = FNV_OFFSET
+    spin i from 0 to len(text)
+        hold c = ord(char_at(text, i))
+        set h = h ^ c
+        set h = (h * FNV_PRIME) % 4294967296
+    end
+    give h
+end
