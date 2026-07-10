@@ -1,4 +1,17 @@
+/*
+ * nplugin.c — Manios Plugin Manager
+ *
+ * 1 file, 2 modes:
+ *   Plugin:  gcc -shared -fPIC -I/usr/local/share/manios/include -o nplugin.so nplugin.c
+ *   CLI:     gcc -DNPLUGIN_CLI -o nplugin nplugin.c
+ *
+ * Plugin developers: copy this pattern! Just wrap your CLI in #ifdef NPLUGIN_CLI.
+ */
+
 #ifdef NPLUGIN_CLI
+/* ========================================================================
+ * CLI MODE — standalone executable, runs on terminal/cmd/termux
+ * ======================================================================== */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -65,6 +78,16 @@ int main(int argc, char **argv) {
     int rc = system(cmd);
     /* cleanup in case mno crash, rm -f won't run inside system() */
     unlink(tmpfile);
+
+    /* Tu dong chay lai mno sau khi install thanh cong */
+    if (rc == 0 && (strcmp(argv[1], "install") == 0 || strcmp(argv[1], "uninstall") == 0)) {
+        fprintf(stderr, "\n[nplugin] Dang khoi dong lai mno...\n");
+        sleep(1);
+        execlp("mno", "mno", NULL);
+        /* Neu exec that bai, fallback */
+        system("mno");
+    }
+
     return rc == 0 ? 0 : 1;
 }
 
@@ -77,8 +100,8 @@ int main(int argc, char **argv) {
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define GITHUB_RAW "https://raw.githubusercontent.com/anhnoine/n-manios/main/nPlugins/plugins"
-#define GITHUB_RAW_SRC "https://raw.githubusercontent.com/anhnoine/n-manios/main/nPlugins"
+#define GITHUB_RAW "https://raw.githubusercontent.com/anhnoine/n-manios/refs/heads/main/nPlugins/plugins"
+#define GITHUB_RAW_SRC "https://raw.githubusercontent.com/anhnoine/n-manios/refs/heads/main/nPlugins"
 
 /* ── nplugin() — hien thi thong tin ── */
 static Val np_info(Val *a, int n) {
@@ -138,7 +161,7 @@ static Val np_install(Val *a, int n) {
         return val_bool(0);
     }
 
-    snprintf(cmd, sizeof(cmd), "gcc -shared -fPIC -I/usr/local/share/manios/include -o '%s' '%s' 2>/dev/null",
+    snprintf(cmd, sizeof(cmd), "gcc -shared -fPIC -I/usr/local/share/manios/include -o '%s' '%s' -lpthread 2>/dev/null",
              dest, tmpfile);
     if (system(cmd) != 0) {
         fprintf(stderr, "[nplugin] Compile that bai: %s\n", name);
@@ -152,7 +175,7 @@ static Val np_install(Val *a, int n) {
         snprintf(cli_dest, sizeof(cli_dest), "%s/.local/bin/%s", home, name);
         snprintf(cmd, sizeof(cmd),
                  "mkdir -p %s/.local/bin 2>/dev/null && "
-                 "gcc -DNPLUGIN_CLI -o '%s' '%s' 2>/dev/null && "
+                 "gcc -DNPLUGIN_CLI -o '%s' '%s' -lpthread 2>/dev/null && "
                  "chmod +x '%s'",
                  home, cli_dest, tmpfile, cli_dest);
         if (system(cmd) == 0) {
@@ -162,7 +185,6 @@ static Val np_install(Val *a, int n) {
 
     unlink(tmpfile);
     fprintf(stderr, "[nplugin] OK: %s -> %s\n", name, dest);
-    fprintf(stderr, "  Chay lai 'mno' de load plugin moi.\n");
     return val_bool(1);
 }
 
@@ -194,7 +216,7 @@ static Val np_install_file(Val *a, int n) {
         fprintf(stderr, "[nplugin] Copied: %s -> %s\n", name, dest);
     } else {
         char cmd[4096];
-        snprintf(cmd, sizeof(cmd), "gcc -shared -fPIC -I/usr/local/share/manios/include -o '%s' '%s' 2>/dev/null",
+        snprintf(cmd, sizeof(cmd), "gcc -shared -fPIC -I/usr/local/share/manios/include -o '%s' '%s' -lpthread 2>/dev/null",
                  dest, path);
         if (system(cmd) != 0) {
             fprintf(stderr, "[nplugin] Compile that bai: %s\n", name);
@@ -211,7 +233,7 @@ static Val np_install_file(Val *a, int n) {
         char cli_cmd[4096];
         snprintf(cli_cmd, sizeof(cli_cmd),
                  "mkdir -p %s/.local/bin 2>/dev/null && "
-                 "gcc -DNPLUGIN_CLI -o '%s' '%s' 2>/dev/null && "
+                 "gcc -DNPLUGIN_CLI -o '%s' '%s' -lpthread 2>/dev/null && "
                  "chmod +x '%s'",
                  home, cli_dest, path, cli_dest);
         if (system(cli_cmd) == 0) {
@@ -220,7 +242,6 @@ static Val np_install_file(Val *a, int n) {
         }
     }
 
-    fprintf(stderr, "  Chay lai 'mno' de load plugin moi.\n");
     return val_bool(1);
 }
 
@@ -274,7 +295,7 @@ static Val np_install_url(Val *a, int n) {
         return val_bool(0);
     }
 
-    snprintf(cmd, sizeof(cmd), "gcc -shared -fPIC -I/usr/local/share/manios/include -o '%s' '%s' 2>/dev/null",
+    snprintf(cmd, sizeof(cmd), "gcc -shared -fPIC -I/usr/local/share/manios/include -o '%s' '%s' -lpthread 2>/dev/null",
              dest, tmpfile);
     if (system(cmd) != 0) {
         fprintf(stderr, "[nplugin] Compile that bai\n");
@@ -289,7 +310,7 @@ static Val np_install_url(Val *a, int n) {
         snprintf(cli_dest, sizeof(cli_dest), "%s/.local/bin/%s", home, base);
         snprintf(cmd, sizeof(cmd),
                  "mkdir -p %s/.local/bin 2>/dev/null && "
-                 "gcc -DNPLUGIN_CLI -o '%s' '%s' 2>/dev/null && "
+                 "gcc -DNPLUGIN_CLI -o '%s' '%s' -lpthread 2>/dev/null && "
                  "chmod +x '%s'",
                  home, cli_dest, tmpfile, cli_dest);
         if (system(cmd) == 0) {
@@ -300,8 +321,6 @@ static Val np_install_url(Val *a, int n) {
     unlink(tmpfile);
     fprintf(stderr, "[nplugin] OK: %s -> %s\n", name, dest);
     free(url_clean); free(name_copy);
-
-    fprintf(stderr, "  Chay lai 'mno' de load plugin moi.\n");
     return val_bool(1);
 }
 
