@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -e
 set -o pipefail
+clear
+sudo apt install make
+clear
 
 [ -t 1 ] && G='\033[0;32m' Y='\033[1;33m' R='\033[0;31m' C='\033[0;36m' B='\033[1m' NC='\033[0m' \
          || G='' Y='' R='' C='' B='' NC=''
@@ -9,10 +12,10 @@ warn()  { printf "${Y}  !${NC} %s\n" "$1"; }
 err()   { printf "${R}  x${NC} %s\n" "$1"; }
 
 echo ""
-echo "  ${C}=======================================${NC}"
-echo "  ${C}  nPlugin installer${NC}"
-echo "  ${C}  repo: anhnoine/n-manios${NC}"
-echo "  ${C}=======================================${NC}"
+echo "  ======================================="
+echo "    nPlugin installer"
+echo "    repo: anhnoine/n-manios$"
+echo "  ======================================="
 echo ""
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -231,6 +234,7 @@ echo ""
 info "Source da patch xong!"
 
 # ── 7. Build ──
+clear
 echo ""
 info "Building Manios..."
 cd "$SRCDIR"
@@ -308,10 +312,11 @@ info "Include: $INCDIR/mnos_ext.h + mnos.h"
 info "Plugin dir: ~/.manios/nplugin/"
 
 # ── 10. Xong ──
+clear
 echo ""
-echo "  ${C}=======================================${NC}"
-echo "  ${C}  nPlugins: SAN SANG!${NC}"
-echo "  ${C}=======================================${NC}"
+echo "  ======================================="
+echo "    nPlugins: SAN SANG!"
+echo "  ======================================="
 echo ""
 echo "  Binary:     $INSTALL_BIN"
 echo "  Plugin dir: ~/.manios/nplugin/"
