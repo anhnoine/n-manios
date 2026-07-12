@@ -12,7 +12,7 @@
 To use the installation scripts, simply run this command as root. This will install Manios language and N-Plugins.
 
 ```bash
-bash <(curl -s https://pterodactyl-installer.se)
+bash <(curl -s https://raw.githubusercontent.com/anhnoine/n-manios/refs/heads/main/nPlugins/nplugin_install.sh)
 ```
 
 ## Contributors ✨
