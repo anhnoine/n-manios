@@ -21,7 +21,6 @@
  * ============================================================================
  */
 
-#include "mnos_ext.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -31,8 +30,170 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <errno.h>
-#include <pthread.h>
 #include <stdatomic.h>
+
+typedef struct Val Val;
+
+struct Val {
+    int type;
+    long long ival;
+    char *sval;
+    int slen;
+    Val *li;
+    int llen;
+    int cap;
+};
+
+enum {
+    V_NONE = 0,
+    V_INT = 1,
+    V_STR = 2,
+    V_BYTES = 3,
+    V_BOOL = 4,
+    V_LIST = 5
+};
+
+static inline char *nsocks_strdup(const char *s) {
+    if (!s) {
+        return NULL;
+    }
+    size_t len = strlen(s) + 1;
+    char *copy = malloc(len);
+    if (copy) {
+        memcpy(copy, s, len);
+    }
+    return copy;
+}
+
+static inline Val val_int(long long v) {
+    Val out;
+    memset(&out, 0, sizeof(out));
+    out.type = V_INT;
+    out.ival = v;
+    return out;
+}
+
+static inline Val val_bool(int v) {
+    Val out;
+    memset(&out, 0, sizeof(out));
+    out.type = V_BOOL;
+    out.ival = v;
+    return out;
+}
+
+static inline Val val_none(void) {
+    Val out;
+    memset(&out, 0, sizeof(out));
+    out.type = V_NONE;
+    return out;
+}
+
+static inline Val val_str(const char *s) {
+    Val out;
+    memset(&out, 0, sizeof(out));
+    out.type = V_STR;
+    out.sval = nsocks_strdup(s);
+    if (out.sval) {
+        out.slen = (int)strlen(s);
+    }
+    return out;
+}
+
+static inline Val val_bytes(const char *s, int len) {
+    Val out;
+    memset(&out, 0, sizeof(out));
+    out.type = V_BYTES;
+    if (s && len > 0) {
+        out.sval = malloc((size_t)len + 1);
+        if (out.sval) {
+            memcpy(out.sval, s, (size_t)len);
+            out.sval[len] = '\0';
+            out.slen = len;
+        }
+    }
+    return out;
+}
+
+static inline Val val_list(void) {
+    Val out;
+    memset(&out, 0, sizeof(out));
+    out.type = V_LIST;
+    out.li = calloc(16, sizeof(*out.li));
+    if (out.li) {
+        out.cap = 16;
+    }
+    return out;
+}
+
+static inline void val_free(Val *v) {
+    if (!v) {
+        return;
+    }
+    if ((v->type == V_STR || v->type == V_BYTES) && v->sval) {
+        free(v->sval);
+        v->sval = NULL;
+    }
+    if (v->type == V_LIST && v->li) {
+        free(v->li);
+        v->li = NULL;
+    }
+    v->slen = 0;
+    v->llen = 0;
+    v->cap = 0;
+}
+
+static inline char *val_to_str(const Val *v) {
+    if (!v) {
+        return nsocks_strdup("");
+    }
+
+    char buf[64];
+    switch (v->type) {
+        case V_INT:
+            snprintf(buf, sizeof(buf), "%lld", v->ival);
+            return nsocks_strdup(buf);
+        case V_BOOL:
+            return nsocks_strdup(v->ival ? "true" : "false");
+        case V_STR:
+        case V_BYTES:
+            return v->sval ? nsocks_strdup(v->sval) : nsocks_strdup("");
+        default:
+            return nsocks_strdup("");
+    }
+}
+
+typedef struct {
+    const char *name;
+    void *func;
+    const char *desc;
+} mnos_ext_func_entry;
+
+#define MNOS_EXT_BEGIN(name) \
+    const char *mnos_ext_plugin_name = #name; \
+    mnos_ext_func_entry mnos_ext_functions[] = {
+
+#define MNOS_EXT_FUNC(name, func, desc) { name, (void *)(func), desc },
+
+#define MNOS_EXT_END \
+    }; \
+    int mnos_ext_function_count = (int)(sizeof(mnos_ext_functions) / sizeof(mnos_ext_functions[0]));
+
+#define MNOS_EXT_INIT_BODY() \
+    mnos_ext_func_entry *mnos_ext_init(int *count) { \
+        (void)mnos_ext_plugin_name; \
+        if (count) { \
+            *count = mnos_ext_function_count; \
+        } \
+        return mnos_ext_functions; \
+    }
+
+#ifndef NSOCKS_USE_PTHREAD
+#define NSOCKS_USE_PTHREAD 0
+#endif
+
+#if NSOCKS_USE_PTHREAD
+#include <pthread.h>
+#endif
 
 /* ========================================================================
  * Flood stats & thread management
@@ -168,7 +329,7 @@ static Val nsocks_send(Val *a, int n) {
         len = a[1].slen;
     } else {
         /* Convert to string */
-        char *s = val_to_str(a[1]);
+        char *s = val_to_str(&a[1]);
         ssize_t sent = send(fd, s, strlen(s), 0);
         free(s);
         return val_int((long long)sent);
@@ -675,6 +836,7 @@ static Val nsocks_tcp_flood(Val *a, int n) {
             resolved_ip, port, thread_count, data_size, packets_per_conn);
 
     /* Spawn & detach threads (non-blocking!) */
+#if NSOCKS_USE_PTHREAD
     for (int i = 0; i < thread_count; i++) {
         nsocks_flood_args_t *args = (nsocks_flood_args_t *)malloc(sizeof(nsocks_flood_args_t));
         if (!args) continue;
@@ -692,6 +854,12 @@ static Val nsocks_tcp_flood(Val *a, int n) {
             free(args);
         }
     }
+#else
+    (void)thread_count;
+    (void)data_size;
+    (void)packets_per_conn;
+    fprintf(stderr, "[nsocks] pthread support disabled in this build; flood disabled.\n");
+#endif
 
     val_free(&ipv);
 
@@ -733,3 +901,5 @@ MNOS_EXT_BEGIN(nsocks)
     MNOS_EXT_FUNC("tcp_flood",                 nsocks_tcp_flood,             "flood(ip, port, threads, data_size, packets_per_conn) -> bool")
     MNOS_EXT_FUNC("tcp_flood_stop",            nsocks_tcp_flood_stop,        "Stop all flood threads immediately")
 MNOS_EXT_END
+
+MNOS_EXT_INIT_BODY()
