@@ -5,9 +5,10 @@
  * Version: 1.0.0
  *
  * 1 file, 2 modes (theo chuan nplugin.c):
- *   Plugin:  gcc -shared -fPIC -I/usr/local/share/manios/include -o nargs.so nargs.c
+ *   Plugin:  gcc -shared -fPIC -o nargs.so nargs.c
  *   CLI:     gcc -DNARGS_CLI -o nargs nargs.c
  *
+ * Self-contained: KHONG can mnos_ext.h hay bat ky header Manios nao.
  * Plugin doc args tu /proc/self/cmdline → scripts dung nargs_get(), nargs_count()...
  * KHONG can sua Manios core.
  * ============================================================================
@@ -108,11 +109,15 @@ int main(int argc, char **argv) {
 #else
 /* ========================================================================
  * PLUGIN MODE — .so loaded by Manios, provides nargs_* builtins
+ *
+ * Self-contained: defines types & macros inline (theo chuan nplugin),
+ * KHONG can mnos_ext.h hay bat ky header Manios nao.
  * ======================================================================== */
-#include "mnos_ext.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
-/* Fallback Val struct (khi compile standalone, ko co Manios headers) */
-#ifndef MNOS_EXT_H
+/* ── Val type ── */
 typedef enum {
     V_NONE, V_INT, V_FLOAT, V_STR, V_BOOL, V_LIST,
     V_DICT, V_CLASS, V_OBJ, V_TUPLE, V_BYTES
@@ -135,12 +140,25 @@ typedef struct Val {
     void *cls;
     void *obj;
 } Val;
-#endif
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <dirent.h>
+/* ── MnosExt function pointer & descriptor ── */
+typedef Val (*MnosExtFn)(Val *args, int nargs);
+typedef struct {
+    const char *name;
+    const char *doc;
+    MnosExtFn func;
+} MnosExtFunc;
+
+/* ── Plugin registration macros (theo chuan nplugin .so) ── */
+#define MNOS_EXT_EXPORT __attribute__((visibility("default")))
+#define MNOS_EXT_BEGIN(extname) \
+    MNOS_EXT_EXPORT MnosExtFunc* mnos_ext_init(int *nfuncs) { \
+        static MnosExtFunc funcs[] = {
+#define MNOS_EXT_FUNC(fname, cfunc, desc) { (fname), (desc), (cfunc) },
+#define MNOS_EXT_END \
+            {NULL, NULL, NULL} }; \
+        *nfuncs = (int)(sizeof(funcs) / sizeof(MnosExtFunc)) - 1; return funcs; \
+    }
 
 /* ── Static argv storage (doc 1 lan tu /proc/self/cmdline) ── */
 static char **nargs_argv = NULL;
@@ -303,7 +321,7 @@ static Val nargs_version_fn(Val *a, int n) {
 }
 
 /* ========================================================================
- * Plugin registration — MNOS_EXT_BEGIN/END (theo chuan nplugin.c + nsocks.c)
+ * Plugin registration — MNOS_EXT_BEGIN/END (theo chuan nplugin)
  * ======================================================================== */
 MNOS_EXT_BEGIN(nargs)
     MNOS_EXT_FUNC("nargs_version",     nargs_version_fn,    "nArgs v1.0.0")
@@ -314,12 +332,5 @@ MNOS_EXT_BEGIN(nargs)
     MNOS_EXT_FUNC("nargs_script_args", nargs_script_args,   "script_args() -> list")
     MNOS_EXT_FUNC("nargs_has_flag",    nargs_has_flag,      "has_flag(f) -> bool")
 MNOS_EXT_END
-
-/* ── Export init (goi boi Manios qua dlsym("mnos_ext_init"))
-   CHI khi compile standalone (ko co mnos_ext.h).
-   Khi co mnos_ext.h, MNOS_EXT_BEGIN da dinh nghia mnos_ext_init inline. ── */
-#ifndef MNOS_EXT_H
-MNOS_EXT_INIT_BODY()
-#endif
 
 #endif /* !NARGS_CLI */
