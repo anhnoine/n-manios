@@ -2,6 +2,7 @@
 set -e
 set -o pipefail
 clear
+apt update
 sudo apt install make
 clear
 
