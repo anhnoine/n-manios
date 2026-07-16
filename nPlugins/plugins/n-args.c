@@ -32,6 +32,8 @@ int main(int argc, char **argv) {
         printf("  nargs list <script.mno> ...   In ra tat ca args\n");
         printf("\n");
         printf("  Script co the dung: nargs_count(), nargs_get(), nargs_all()\n");
+        printf("  Vi du:\n");
+        printf("    nargs ddos.mno 1.2.3.4:25565 500\n");
         return 0;
     }
 
@@ -191,10 +193,7 @@ static void nargs_load_cmdline(void) {
     nargs_loaded = 1;
 
     FILE *f = fopen("/proc/self/cmdline", "rb");
-    if (!f) {
-        fprintf(stderr, "[nargs] WARN: cannot open /proc/self/cmdline\n");
-        return;
-    }
+    if (!f) return;
 
     /* Read sequentially — /proc files don't support fseek/ftell */
     size_t cap = 4096;
@@ -241,11 +240,6 @@ static void nargs_load_cmdline(void) {
         }
     }
     nargs_argc = idx;
-
-    fprintf(stderr, "[nargs] Loaded %d args from /proc/self/cmdline\n", nargs_argc);
-    for (int i = 0; i < nargs_argc && i < 5; i++)
-        fprintf(stderr, "[nargs]   argv[%d] = '%s'\n", i, nargs_argv[i] ? nargs_argv[i] : "(null)");
-
     free(buf);
 }
 
