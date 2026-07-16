@@ -32,8 +32,6 @@ int main(int argc, char **argv) {
         printf("  nargs list <script.mno> ...   In ra tat ca args\n");
         printf("\n");
         printf("  Script co the dung: nargs_count(), nargs_get(), nargs_all()\n");
-        printf("  Vi du:\n");
-        printf("    nargs ddos.mno 1.2.3.4:25565 500\n");
         return 0;
     }
 
