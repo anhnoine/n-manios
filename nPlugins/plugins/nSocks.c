@@ -3,7 +3,7 @@
  * ============================================================================
  * Author:  IdlerHa
  * Version: 1.0.0
- * License: MIT
+ * License: ;;;;;MIT
  *
  * Mot thu vien TCP networking cho Manios.
  * Ho tro ca client, server va flood testing.
@@ -32,26 +32,34 @@
 #include <errno.h>
 #include <stdatomic.h>
 
-typedef struct Val Val;
+// If Manios headers (mnos.h, mnos_ext.h) are not already included
+// (e.g., when compiling with nplugin), define our own compatible types.
+// These must EXACTLY match Manios mnos.h Val struct layout.
+#ifndef MNOS_EXT_H
+typedef enum {
+    V_NONE, V_INT, V_FLOAT, V_STR, V_BOOL, V_LIST,
+    V_DICT, V_CLASS, V_OBJ, V_TUPLE, V_BYTES
+} VType;
 
-struct Val {
-    int type;
+typedef struct Val {
+    VType type;
     long long ival;
+    double fval;
+    int bval;
     char *sval;
     int slen;
-    Val *li;
+    struct Val *li;
     int llen;
-    int cap;
-};
-
-enum {
-    V_NONE = 0,
-    V_INT = 1,
-    V_STR = 2,
-    V_BYTES = 3,
-    V_BOOL = 4,
-    V_LIST = 5
-};
+    int lcap;
+    char **dkeys;
+    struct Val *dvals;
+    int dlen;
+    int dcap;
+    struct Val *tu;
+    int tlen;
+    void *cls;
+    void *obj;
+} Val;
 
 static inline char *nsocks_strdup(const char *s) {
     if (!s) {
@@ -77,7 +85,7 @@ static inline Val val_bool(int v) {
     Val out;
     memset(&out, 0, sizeof(out));
     out.type = V_BOOL;
-    out.ival = v;
+    out.bval = v;
     return out;
 }
 
@@ -120,7 +128,7 @@ static inline Val val_list(void) {
     out.type = V_LIST;
     out.li = calloc(16, sizeof(*out.li));
     if (out.li) {
-        out.cap = 16;
+        out.lcap = 16;
     }
     return out;
 }
@@ -139,7 +147,7 @@ static inline void val_free(Val *v) {
     }
     v->slen = 0;
     v->llen = 0;
-    v->cap = 0;
+    v->lcap = 0;
 }
 
 static inline char *val_to_str(const Val *v) {
@@ -153,7 +161,7 @@ static inline char *val_to_str(const Val *v) {
             snprintf(buf, sizeof(buf), "%lld", v->ival);
             return nsocks_strdup(buf);
         case V_BOOL:
-            return nsocks_strdup(v->ival ? "true" : "false");
+            return nsocks_strdup(v->bval ? "true" : "false");
         case V_STR:
         case V_BYTES:
             return v->sval ? nsocks_strdup(v->sval) : nsocks_strdup("");
@@ -162,17 +170,18 @@ static inline char *val_to_str(const Val *v) {
     }
 }
 
+// Struct must match Manios MnosExtFunc layout: {name, desc, func}
 typedef struct {
     const char *name;
-    void *func;
     const char *desc;
+    void *func;
 } mnos_ext_func_entry;
 
 #define MNOS_EXT_BEGIN(name) \
     const char *mnos_ext_plugin_name = #name; \
     mnos_ext_func_entry mnos_ext_functions[] = {
 
-#define MNOS_EXT_FUNC(name, func, desc) { name, (void *)(func), desc },
+#define MNOS_EXT_FUNC(name, func, desc) { name, desc, (void *)(func) },
 
 #define MNOS_EXT_END \
     }; \
@@ -186,14 +195,13 @@ typedef struct {
         } \
         return mnos_ext_functions; \
     }
+#endif /* !MNOS_EXT_H */
 
-#ifndef NSOCKS_USE_PTHREAD
-#define NSOCKS_USE_PTHREAD 0
-#endif
-
-#if NSOCKS_USE_PTHREAD
+/* Pthread is required for flood worker threads.
+   Always enabled — nplugin links -lpthread automatically. */
 #include <pthread.h>
-#endif
+#include <fcntl.h>
+#include <time.h>
 
 /* ========================================================================
  * Flood stats & thread management
@@ -725,10 +733,21 @@ typedef struct {
 static void *nsocks_flood_worker(void *arg) {
     nsocks_flood_args_t *args = (nsocks_flood_args_t *)arg;
 
-    /* Allocate send buffer */
-    unsigned char *data = (unsigned char *)malloc(args->data_size);
-    if (!data) return NULL;
-    memset(data, 0x00, args->data_size);
+    /* Use a fixed 64KB buffer (reused for all sends) instead of malloc'ing
+       args->data_size per thread.  100 threads × 2MB = 200MB was excessive. */
+    int buf_size = 65536;
+    unsigned char *data = (unsigned char *)malloc(buf_size);
+    if (!data) {
+        fprintf(stderr, "[nsocks] Worker malloc failed, aborting thread\n");
+        free(args);
+        return NULL;
+    }
+    memset(data, 0x00, buf_size);
+
+    /* Shared rate-limiter for all connect-error log messages.
+       Only print one diagnostic per target every 10 seconds. */
+    static time_t last_err_log = 0;
+    static char last_err_target[128] = "";
 
     while (atomic_load(&nsocks_flood_running)) {
         int sock = socket(AF_INET, SOCK_STREAM, 0);
@@ -737,35 +756,102 @@ static void *nsocks_flood_worker(void *arg) {
             continue;
         }
 
-        /* Set timeout */
+        /* Set send timeout */
         struct timeval tv;
-        tv.tv_sec = 5;
+        tv.tv_sec = 2;
         tv.tv_usec = 0;
-        setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
         setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 
-        /* Connect */
+        /* ---- Non-blocking connect with 3-second select() timeout ---- */
+        int flags = fcntl(sock, F_GETFL, 0);
+        fcntl(sock, F_SETFL, flags | O_NONBLOCK);
+
         struct sockaddr_in addr;
         memset(&addr, 0, sizeof(addr));
         addr.sin_family = AF_INET;
         addr.sin_port = htons((unsigned short)args->port);
         inet_pton(AF_INET, args->ip, &addr.sin_addr);
 
-        if (connect(sock, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-            close(sock);
-            usleep(50000);
-            continue;
+        int res = connect(sock, (struct sockaddr *)&addr, sizeof(addr));
+        if (res < 0) {
+            int should_log = 0;
+            const char *err_msg = "";
+
+            if (errno == EINPROGRESS) {
+                fd_set wset;
+                FD_ZERO(&wset);
+                FD_SET(sock, &wset);
+                struct timeval tv_sel;
+                tv_sel.tv_sec = 3;
+                tv_sel.tv_usec = 0;
+
+                res = select(sock + 1, NULL, &wset, NULL, &tv_sel);
+                if (res <= 0) {
+                    if (res == 0) {
+                        err_msg = "Connect timeout (server unreachable?)";
+                    } else {
+                        int saved = errno;
+                        err_msg = strerror(saved);
+                    }
+                    should_log = 1;
+                } else {
+                    int so_error = 0;
+                    socklen_t len_opt = sizeof(so_error);
+                    getsockopt(sock, SOL_SOCKET, SO_ERROR, &so_error, &len_opt);
+                    if (so_error != 0) {
+                        err_msg = strerror(so_error);
+                        should_log = 1;
+                    }
+                }
+            } else {
+                int saved = errno;
+                err_msg = strerror(saved);
+                should_log = 1;
+            }
+
+            /* should_log doubles as "is this an error".
+               When 0 and we're here, non-blocking connect succeeded
+               (SO_ERROR == 0) — fall through to send. */
+            if (should_log) {
+                time_t now = time(NULL);
+                int same_target = (strcmp(args->ip, last_err_target) == 0);
+                if (!same_target || now - last_err_log >= 10) {
+                    fprintf(stderr, "[nsocks] Connect to %s:%d - %s\n", args->ip, args->port, err_msg);
+                    strncpy(last_err_target, args->ip, sizeof(last_err_target) - 1);
+                    last_err_target[sizeof(last_err_target) - 1] = '\0';
+                    last_err_log = now;
+                }
+                close(sock);
+                usleep(50000);
+                continue;
+            }
+            /* Non-blocking connect succeeded — restore blocking mode below */
         }
 
-        /* Send packets */
+        /* Restore blocking mode for predictable send timeouts */
+        fcntl(sock, F_SETFL, flags);
+
+        /* Send args->data_size bytes in 64KB chunks per packet */
         for (int i = 0; i < args->packets_per_conn && atomic_load(&nsocks_flood_running); i++) {
+            int remaining = args->data_size;
+            int chunk_ok = 1;
+
+            while (remaining > 0 && chunk_ok && atomic_load(&nsocks_flood_running)) {
+                int chunk = remaining > buf_size ? buf_size : remaining;
 #ifdef MSG_NOSIGNAL
-            ssize_t sent = send(sock, data, args->data_size, MSG_NOSIGNAL);
+                ssize_t sent = send(sock, data, (size_t)chunk, MSG_NOSIGNAL);
 #else
-            ssize_t sent = send(sock, data, args->data_size, 0);
+                ssize_t sent = send(sock, data, (size_t)chunk, 0);
 #endif
-            if (sent < 0) break;
-            atomic_fetch_add(&nsocks_flood_bytes, (unsigned long long)sent);
+                if (sent <= 0) {
+                    chunk_ok = 0;
+                    break;
+                }
+                atomic_fetch_add(&nsocks_flood_bytes, (unsigned long long)sent);
+                remaining -= (int)sent;
+            }
+
+            if (!chunk_ok) break;
         }
 
         close(sock);
@@ -835,8 +921,7 @@ static Val nsocks_tcp_flood(Val *a, int n) {
     fprintf(stderr, "[nsocks] Bat dau flood: %s:%d | %d threads | %d bytes/packet | %d packets/conn\n",
             resolved_ip, port, thread_count, data_size, packets_per_conn);
 
-    /* Spawn & detach threads (non-blocking!) */
-#if NSOCKS_USE_PTHREAD
+    /* Spawn & detach threads (non-blocking, always uses pthread) */
     for (int i = 0; i < thread_count; i++) {
         nsocks_flood_args_t *args = (nsocks_flood_args_t *)malloc(sizeof(nsocks_flood_args_t));
         if (!args) continue;
@@ -854,12 +939,6 @@ static Val nsocks_tcp_flood(Val *a, int n) {
             free(args);
         }
     }
-#else
-    (void)thread_count;
-    (void)data_size;
-    (void)packets_per_conn;
-    fprintf(stderr, "[nsocks] pthread support disabled in this build; flood disabled.\n");
-#endif
 
     val_free(&ipv);
 
@@ -882,6 +961,74 @@ static Val nsocks_tcp_flood_stop(Val *a, int n) {
 }
 
 /* ========================================================================
+ * nsocks_tcp_probe(ip, port) — kiem tra server co online khong
+ *   ip: dia chi IP
+ *   port: so port
+ *   tra ve: "ok" neu connect duoc, "fail|reason" neu khong
+ *
+ * Chi test TCP connect — KHONG gui Minecraft ping (tranh complexity gay crash).
+ * ======================================================================== */
+static Val nsocks_tcp_probe(Val *a, int n) {
+    /* Sanity checks first */
+    if (n < 2) return val_str("fail|need_2_args");
+    if (a[0].type != V_STR) return val_str("fail|arg1_not_string");
+    if (a[0].slen <= 0 || a[0].slen > 63) return val_str("fail|bad_ip_len");
+    if (a[0].sval == NULL) return val_str("fail|null_ip");
+
+    /* Safe copy of IP */
+    char ip[64];
+    memcpy(ip, a[0].sval, (size_t)a[0].slen);
+    ip[a[0].slen] = '\0';
+
+    long long port_ll = (a[1].type == V_INT) ? a[1].ival : 0;
+    if (port_ll <= 0 || port_ll > 65535) return val_str("fail|bad_port");
+    int port = (int)port_ll;
+
+    /* Log via write() not fprintf() — stderr may be broken in Manios */
+    char msg[256];
+    int msglen = snprintf(msg, sizeof(msg), "[nsocks] Probing %s:%d ...\n", ip, port);
+    if (msglen > 0) write(2, msg, (size_t)msglen);
+
+    /* Non-blocking connect with 4s timeout */
+    int sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock < 0) return val_str("fail|cannot_create_socket");
+
+    int flags = fcntl(sock, F_GETFL, 0);
+    if (flags < 0) { close(sock); return val_str("fail|fcntl_getfl"); }
+    if (fcntl(sock, F_SETFL, flags | O_NONBLOCK) < 0) { close(sock); return val_str("fail|fcntl_setfl"); }
+
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons((unsigned short)port);
+    if (inet_pton(AF_INET, ip, &addr.sin_addr) != 1) { close(sock); return val_str("fail|bad_ip_format"); }
+
+    int res = connect(sock, (struct sockaddr *)&addr, sizeof(addr));
+    if (res < 0 && errno == EINPROGRESS) {
+        fd_set wset; FD_ZERO(&wset); FD_SET(sock, &wset);
+        struct timeval tv; tv.tv_sec = 4; tv.tv_usec = 0;
+        res = select(sock + 1, NULL, &wset, NULL, &tv);
+        if (res <= 0) { close(sock); return val_str("fail|timeout"); }
+        int so = 0; socklen_t sl = sizeof(so);
+        if (getsockopt(sock, SOL_SOCKET, SO_ERROR, &so, &sl) < 0) { close(sock); return val_str("fail|getsockopt"); }
+        if (so != 0) {
+            close(sock);
+            msglen = snprintf(msg, sizeof(msg), "fail|%s", strerror(so));
+            return val_str(msg);
+        }
+    } else if (res < 0) {
+        close(sock);
+        msglen = snprintf(msg, sizeof(msg), "fail|%s", strerror(errno));
+        return val_str(msg);
+    }
+
+    close(sock);
+    msglen = snprintf(msg, sizeof(msg), "[nsocks] %s:%d — TCP OK!\n", ip, port);
+    write(2, msg, (size_t)msglen);
+    return val_str("ok");
+}
+
+/* ========================================================================
  * Dang ky plugin
  * ======================================================================== */
 MNOS_EXT_BEGIN(nsocks)
@@ -900,6 +1047,7 @@ MNOS_EXT_BEGIN(nsocks)
     MNOS_EXT_FUNC("tcp_flood_stats",           nsocks_tcp_flood_stats,       "Get total bytes sent by flood")
     MNOS_EXT_FUNC("tcp_flood",                 nsocks_tcp_flood,             "flood(ip, port, threads, data_size, packets_per_conn) -> bool")
     MNOS_EXT_FUNC("tcp_flood_stop",            nsocks_tcp_flood_stop,        "Stop all flood threads immediately")
+    MNOS_EXT_FUNC("tcp_probe",                nsocks_tcp_probe,             "probe(ip, port) -> 'ok|minecraft' or 'fail|reason'")
 MNOS_EXT_END
 
 MNOS_EXT_INIT_BODY()
